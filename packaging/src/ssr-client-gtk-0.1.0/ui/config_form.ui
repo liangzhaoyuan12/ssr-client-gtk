@@ -1,0 +1,415 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <!-- Create / edit profile form. Fields follow ARCHITECTURE §5.4; there is
+       deliberately no ssr_service_port and no listen_address entry (fixed to
+       0.0.0.0, GOAL D2). DropDown models are filled from the ssr-client-rs
+       enums in code (GOAL 4.2). -->
+  <requires lib="gtk" version="4.18"/>
+
+  <object class="GtkBox" id="form_root">
+    <property name="orientation">vertical</property>
+    <child>
+      <object class="GtkScrolledWindow" id="form_scroll">
+        <property name="hexpand">True</property>
+        <property name="vexpand">True</property>
+        <property name="child">
+          <object class="GtkBox" id="form_box">
+        <property name="orientation">vertical</property>
+        <property name="spacing">10</property>
+        <property name="margin-start">18</property>
+        <property name="margin-end">18</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">18</property>
+
+        <child>
+          <object class="GtkLabel" id="form_title">
+            <property name="label">新建配置</property>
+            <property name="xalign">0</property>
+            <style>
+              <class name="title-2"/>
+            </style>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkLabel" id="form_error">
+            <property name="label"></property>
+            <property name="xalign">0</property>
+            <property name="wrap">True</property>
+            <property name="visible">False</property>
+            <style>
+              <class name="error"/>
+            </style>
+          </object>
+        </child>
+
+        <!-- row: profile name -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_name">
+                <property name="label">配置名称</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkEntry" id="entry_name">
+                <property name="hexpand">True</property>
+                <property name="placeholder-text">例如：我的服务器</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkLabel" id="name_hint">
+            <property name="label">仅支持字母，创建后不可修改</property>
+            <property name="xalign">1</property>
+            <property name="wrap">True</property>
+            <style>
+              <class name="dim-label"/>
+              <class name="caption"/>
+            </style>
+          </object>
+        </child>
+
+        <!-- row: server -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_server">
+                <property name="label">服务器地址</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkEntry" id="entry_server">
+                <property name="hexpand">True</property>
+                <property name="placeholder-text">example.com 或 1.2.3.4</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: server port -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_server_port">
+                <property name="label">服务器端口</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="spin_server_port">
+                <property name="adjustment">adj_port</property>
+                <property name="value">443</property>
+                <property name="digits">0</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: password -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_password">
+                <property name="label">密码</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkPasswordEntry" id="entry_password">
+                <property name="hexpand">True</property>
+                <property name="placeholder-text">输入密码</property>
+                <property name="show-peek-icon">True</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: method -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_method">
+                <property name="label">加密方式</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkDropDown" id="dd_method">
+                <property name="hexpand">True</property>
+                <property name="model">stringlist_method</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: protocol -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_protocol">
+                <property name="label">协议</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkDropDown" id="dd_protocol">
+                <property name="hexpand">True</property>
+                <property name="model">stringlist_protocol</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: obfs -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_obfs">
+                <property name="label">混淆</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkDropDown" id="dd_obfs">
+                <property name="hexpand">True</property>
+                <property name="model">stringlist_obfs</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: protocol param -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_protocol_param">
+                <property name="label">协议参数</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkEntry" id="entry_protocol_param">
+                <property name="hexpand">True</property>
+                <property name="placeholder-text">可选</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: obfs param -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_obfs_param">
+                <property name="label">混淆参数</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkEntry" id="entry_obfs_param">
+                <property name="hexpand">True</property>
+                <property name="placeholder-text">可选</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: udp switch -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_udp">
+                <property name="label">启用 UDP 中继</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSwitch" id="sw_udp">
+                <property name="halign">start</property>
+                <property name="active">True</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: idle timeout -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_idle_timeout">
+                <property name="label">空闲超时（秒）</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="spin_idle_timeout">
+                <property name="adjustment">adj_timeout_long</property>
+                <property name="value">300</property>
+                <property name="digits">0</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: connect timeout -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_connect_timeout">
+                <property name="label">连接超时（秒）</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="spin_connect_timeout">
+                <property name="adjustment">adj_timeout_short</property>
+                <property name="value">6</property>
+                <property name="digits">0</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: udp timeout -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_udp_timeout">
+                <property name="label">UDP 超时（秒）</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="spin_udp_timeout">
+                <property name="adjustment">adj_timeout_short</property>
+                <property name="value">6</property>
+                <property name="digits">0</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- row: local listen port (the one and only exposed port, N1) -->
+        <child>
+          <object class="GtkBox">
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel" id="lbl_listen_port">
+                <property name="label">本地端口</property>
+                <property name="xalign">1</property>
+                <property name="width-chars">16</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="spin_listen_port">
+                <property name="adjustment">adj_port</property>
+                <property name="value">1080</property>
+                <property name="digits">0</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child>
+          <object class="GtkLabel" id="listen_note">
+            <property name="label">本地监听地址固定为 0.0.0.0（无认证 SOCKS5，注意局域网可达）</property>
+            <property name="xalign">1</property>
+            <property name="wrap">True</property>
+            <style>
+              <class name="dim-label"/>
+              <class name="caption"/>
+            </style>
+          </object>
+        </child>
+
+      </object>
+        </property>
+      </object>
+    </child>
+
+    <child>
+      <object class="GtkBox" id="form_buttons">
+        <property name="spacing">12</property>
+        <property name="halign">end</property>
+        <property name="margin-start">18</property>
+        <property name="margin-end">18</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">18</property>
+        <child>
+          <object class="GtkButton" id="btn_cancel">
+            <property name="label">取消</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkButton" id="btn_save">
+            <property name="label">保存</property>
+            <style>
+              <class name="suggested-action"/>
+            </style>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+
+  <object class="GtkAdjustment" id="adj_port">
+    <property name="lower">1</property>
+    <property name="upper">65535</property>
+    <property name="value">1080</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+
+  <object class="GtkAdjustment" id="adj_timeout_short">
+    <property name="lower">1</property>
+    <property name="upper">3600</property>
+    <property name="value">6</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+
+  <object class="GtkAdjustment" id="adj_timeout_long">
+    <property name="lower">1</property>
+    <property name="upper">86400</property>
+    <property name="value">300</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+
+  <!-- DropDown models; option lists are filled from ssr-client-rs enums in
+       code (these start empty so the .ui stays data-source free). -->
+  <object class="GtkStringList" id="stringlist_method"/>
+  <object class="GtkStringList" id="stringlist_protocol"/>
+  <object class="GtkStringList" id="stringlist_obfs"/>
+</interface>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.liangzhaoyuan12.ssr-client-gtk</id>
+  <name>ShadowsocksR Client</name>
+  <name xml:lang="zh-CN">ShadowsocksR 客户端</name>
+  <summary>GTK desktop client for ShadowsocksR</summary>
+  <summary xml:lang="zh-CN">ShadowsocksR 桌面客户端（GTK）</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>
+      A native GTK4 + libadwaita desktop client for ShadowsocksR, linking the
+      ssr-client-rs core in-process. Manage profiles, start and stop the proxy
+      with one click, and let the desktop's system proxy follow along.
+    </p>
+    <p>
+      While enabled the application exposes exactly one TCP listening port: the
+      SOCKS5 port produced by the SSR protocol pipeline. The listener address
+      is fixed to 0.0.0.0 — point only trusted clients at it, or firewall it.
+    </p>
+    <p xml:lang="zh-CN">
+      原生 GTK4 + libadwaita 的 ShadowsocksR 桌面客户端，进程内链接 ssr-client-rs
+      核心。管理配置、一键启停代理，并自动跟随桌面系统代理设置。
+      启用期间全应用只暴露一个 TCP 监听口：经 SSR 协议链路处理后的 SOCKS5 口。
+      监听地址固定为 0.0.0.0，请只让可信客户端访问或用防火墙限制。
+    </p>
+  </description>
+  <url type="homepage">https://cnb.cool/liangzhaoyuan12/ssr-client-rs</url>
+  <developer id="com.liangzhaoyuan12">
+    <name>liangzhaoyuan12</name>
+  </developer>
+  <launchable type="desktop-id">com.liangzhaoyuan12.ssr-client-gtk.desktop</launchable>
+  <provides>
+    <binary>ssr-client-gtk</binary>
+  </provides>
+  <categories>
+    <category>Network</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-09-26">
+      <description>
+        <p>First release: profile management, single-port enable/disable with
+        automatic system-proxy snapshot and restore, zh-CN / en-US UI.</p>
+      </description>
+    </release>
+  </releases>
+</component>

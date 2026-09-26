@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <!-- Dashboard: proxy control + usage steps + the single local proxy
+       address card (only one port ever, invariant N1). -->
+  <requires lib="gtk" version="4.18"/>
+  <requires lib="libadwaita" version="1.7"/>
+
+  <object class="GtkScrolledWindow" id="dashboard_root">
+    <property name="child">
+      <object class="GtkBox" id="dashboard_box">
+        <property name="orientation">vertical</property>
+        <property name="spacing">14</property>
+        <property name="margin-start">18</property>
+        <property name="margin-end">18</property>
+        <property name="margin-top">12</property>
+        <property name="margin-bottom">18</property>
+
+        <!-- status block -->
+        <child>
+          <object class="GtkBox" id="status_block">
+            <property name="orientation">vertical</property>
+            <property name="spacing">6</property>
+            <property name="halign">center</property>
+            <child>
+              <object class="GtkLabel" id="dash_config_name">
+                <property name="label">—</property>
+                <property name="xalign">0.5</property>
+                <style>
+                  <class name="title-3"/>
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkBox">
+                <property name="spacing">8</property>
+                <property name="halign">center</property>
+                <child>
+                  <object class="GtkImage" id="status_dot">
+                    <property name="icon-name">emblem-ok-symbolic</property>
+                    <property name="visible">False</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="dash_state">
+                    <property name="label">未连接</property>
+                    <style>
+                      <class name="dim-label"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkSpinner" id="dash_spinner">
+                    <property name="visible">False</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="btn_toggle">
+                <property name="label">启用代理</property>
+                <property name="halign">center</property>
+                <style>
+                  <class name="pill"/>
+                  <class name="suggested-action"/>
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel" id="dash_busy_note">
+                <property name="label"></property>
+                <property name="visible">False</property>
+                <style>
+                  <class name="dim-label"/>
+                  <class name="caption"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- local proxy address card (the ONLY port) -->
+        <child>
+          <object class="GtkFrame">
+            <property name="child">
+              <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <property name="margin-start">12</property>
+                <property name="margin-end">12</property>
+                <property name="margin-top">10</property>
+                <property name="margin-bottom">10</property>
+                <child>
+                  <object class="GtkLabel" id="dash_proxy_title">
+                    <property name="label">本地代理设置</property>
+                    <property name="xalign">0</property>
+                    <style>
+                      <class name="heading"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="dash_socks5">
+                    <property name="label">SOCKS5 代理</property>
+                    <property name="xalign">0</property>
+                    <style>
+                      <class name="dim-label"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="lbl_listen">
+                    <property name="label">实际监听 0.0.0.0:1080</property>
+                    <property name="xalign">0</property>
+                    <property name="selectable">True</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="lbl_sysproxy">
+                    <property name="label">系统代理 → 127.0.0.1:1080</property>
+                    <property name="xalign">0</property>
+                    <property name="selectable">True</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="dash_hint">
+                    <property name="label">在浏览器或终端中将代理指向该地址即可</property>
+                    <property name="xalign">0</property>
+                    <property name="wrap">True</property>
+                    <style>
+                      <class name="dim-label"/>
+                      <class name="caption"/>
+                    </style>
+                  </object>
+                </child>
+              </object>
+            </property>
+          </object>
+        </child>
+
+        <!-- usage steps card -->
+        <child>
+          <object class="GtkFrame">
+            <property name="child">
+              <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">8</property>
+                <property name="margin-start">12</property>
+                <property name="margin-end">12</property>
+                <property name="margin-top">10</property>
+                <property name="margin-bottom">10</property>
+                <child>
+                  <object class="GtkLabel" id="dash_steps_title">
+                    <property name="label">使用说明</property>
+                    <property name="xalign">0</property>
+                    <style>
+                      <class name="heading"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="dash_steps">
+                    <property name="xalign">0</property>
+                    <property name="wrap">True</property>
+                    <property name="selectable">True</property>
+                    <property name="justify">left</property>
+                  </object>
+                </child>
+              </object>
+            </property>
+          </object>
+        </child>
+      </object>
+    </property>
+  </object>
+</interface>

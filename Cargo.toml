@@ -1,0 +1,81 @@
+[package]
+name = "ssr-client-gtk"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+description = "Linux desktop ShadowsocksR client — GTK4 + libadwaita UI with the in-process ssr-client-rs core"
+license = "GPL-3.0-or-later"
+repository = "https://cnb.cool/liangzhaoyuan12/ssr-client-rs"
+readme = "README.md"
+keywords = ["shadowsocksr", "proxy", "gtk", "libadwaita", "linux"]
+categories = ["gui", "network-programming"]
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.11", features = ["v4_18"] }
+libadwaita = { version = "0.9", features = ["v1_7", "gtk_v4_18"] }
+glib = "0.22"
+ssr-client-rs = { git = "https://cnb.cool/liangzhaoyuan12/ssr-client-rs" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+thiserror = "2"
+async-channel = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# ---- deb (cargo-deb) -------------------------------------------------
+[package.metadata.deb]
+maintainer = "liangzhaoyuan12"
+copyright = "2026 liangzhaoyuan12"
+extended-description = """
+A native GTK4 + libadwaita desktop client for ShadowsocksR, linking the
+ssr-client-rs core in-process. One click to start/stop the proxy; while
+enabled exactly one TCP port is listening (the routed SOCKS5 port) and the
+desktop system proxy follows it. UI in Chinese and English."""
+depends = "$auto, libgtk-4-1 (>= 4.18), libadwaita-1-0 (>= 1.7)"
+section = "net"
+priority = "optional"
+assets = [
+    ["target/release/ssr-client-gtk", "usr/bin/", "755"],
+    ["data/com.liangzhaoyuan12.ssr-client-gtk.desktop", "usr/share/applications/", "644"],
+    ["data/com.liangzhaoyuan12.ssr-client-gtk.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["data/icons/hicolor/scalable/apps/com.liangzhaoyuan12.ssr-client-gtk.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["data/icons/hicolor/*/apps/com.liangzhaoyuan12.ssr-client-gtk.png", "usr/share/icons/hicolor/", "644"],
+    ["README.md", "usr/share/doc/ssr-client-gtk/README.md", "644"],
+    ["CHANGELOG.md", "usr/share/doc/ssr-client-gtk/CHANGELOG.md", "644"],
+    ["LICENSE", "usr/share/doc/ssr-client-gtk/LICENSE", "644"],
+]
+
+# ---- rpm (cargo-generate-rpm) ---------------------------------------
+[package.metadata.generate-rpm]
+# Fedora/RHEL runtime package names for the two GUI libraries.
+assets = [
+    { source = "target/release/ssr-client-gtk", dest = "/usr/bin/ssr-client-gtk", mode = "755" },
+    { source = "data/com.liangzhaoyuan12.ssr-client-gtk.desktop", dest = "/usr/share/applications/com.liangzhaoyuan12.ssr-client-gtk.desktop" },
+    { source = "data/com.liangzhaoyuan12.ssr-client-gtk.metainfo.xml", dest = "/usr/share/metainfo/com.liangzhaoyuan12.ssr-client-gtk.metainfo.xml" },
+    { source = "data/icons/hicolor/scalable/apps/com.liangzhaoyuan12.ssr-client-gtk.svg", dest = "/usr/share/icons/hicolor/scalable/apps/com.liangzhaoyuan12.ssr-client-gtk.svg" },
+    { source = "data/icons/hicolor/48x48/apps/com.liangzhaoyuan12.ssr-client-gtk.png", dest = "/usr/share/icons/hicolor/48x48/apps/com.liangzhaoyuan12.ssr-client-gtk.png" },
+    { source = "data/icons/hicolor/64x64/apps/com.liangzhaoyuan12.ssr-client-gtk.png", dest = "/usr/share/icons/hicolor/64x64/apps/com.liangzhaoyuan12.ssr-client-gtk.png" },
+    { source = "data/icons/hicolor/128x128/apps/com.liangzhaoyuan12.ssr-client-gtk.png", dest = "/usr/share/icons/hicolor/128x128/apps/com.liangzhaoyuan12.ssr-client-gtk.png" },
+    { source = "data/icons/hicolor/256x256/apps/com.liangzhaoyuan12.ssr-client-gtk.png", dest = "/usr/share/icons/hicolor/256x256/apps/com.liangzhaoyuan12.ssr-client-gtk.png" },
+    { source = "README.md", dest = "/usr/share/doc/ssr-client-gtk/README.md" },
+    { source = "CHANGELOG.md", dest = "/usr/share/doc/ssr-client-gtk/CHANGELOG.md" },
+    { source = "LICENSE", dest = "/usr/share/doc/ssr-client-gtk/LICENSE" },
+]
+
+[package.metadata.generate-rpm.requires]
+gtk4 = ">= 4.18"
+libadwaita = ">= 1.7"
+
+[package.metadata.generate-rpm.metadata]
+summary = "GTK4/libadwaita ShadowsocksR client (single-port SOCKS5)"
+license = "GPL-3.0-or-later"
+url = "https://cnb.cool/liangzhaoyuan12/ssr-client-rs"
