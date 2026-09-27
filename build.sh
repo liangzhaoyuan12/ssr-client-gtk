@@ -98,22 +98,81 @@ grep -q 'libgtk-4-1 (>= 4.18)' Cargo.toml || die "deb depends 的 libgtk-4-1 下
 grep -q 'libadwaita-1-0 (>= 1.7)' Cargo.toml || die "deb depends 的 libadwaita-1-0 下限不是 (>= 1.7)"
 log "版本: $VER（已核验 features/rpm/PKGBUILD 依赖下限一致）"
 
+# ---------- 4b. 图标：唯一来源 = 仓库根目录 icon.png ----------
+# 桌面图标（.desktop 的 Icon=）、窗口图标、关于对话框、四件套包内的
+# hicolor 图标全部由 icon.png 派生；每次构建重新生成，杜绝"包里装的是
+# 另一张图"。512x512 是图标原尺寸，其余尺寸由它缩放。
+ICON=icon.png
+ICON_ID=com.liangzhaoyuan12.ssr-client-gtk
+[ -f "$ICON" ] || die "缺少图标源文件 icon.png（应用图标的唯一来源）"
+ICON_DESC=$(file -b "$ICON")
+case "$ICON_DESC" in
+  "PNG image data, 512 x 512"*) ;;
+  *) die "icon.png 必须是 512x512 的 PNG：实际 = $ICON_DESC" ;;
+esac
+if command -v magick >/dev/null 2>&1; then
+  icon_resize() { magick "$ICON" -resize "$1" "png32:$2"; }
+elif command -v convert >/dev/null 2>&1; then
+  icon_resize() { convert "$ICON" -resize "$1" "png32:$2"; }
+else
+  die "找不到 ImageMagick（magick/convert）：需要它从 icon.png 生成各尺寸图标"
+fi
+for s in 48 64 128 256 512; do
+  out="data/icons/hicolor/${s}x${s}/apps/$ICON_ID.png"
+  mkdir -p "$(dirname "$out")"
+  icon_resize "${s}x${s}" "$out"
+  [ -f "$out" ] || die "图标生成失败: $out"
+  case "$(file -b "$out")" in
+    "PNG image data, $s x $s"*) ;;
+    *) die "生成的 $out 尺寸不对: $(file -b "$out")" ;;
+  esac
+done
+# desktop 文件的 Icon= 必须指向同一个图标名
+grep -q "^Icon=$ICON_ID$" "data/$ICON_ID.desktop" \
+  || die "data/$ICON_ID.desktop 的 Icon= 不是 $ICON_ID"
+# 1) 512 产物必须与 icon.png 逐像素一致（不是"另一张图"）
+if command -v compare >/dev/null 2>&1; then
+  # `compare -metric AE` prints e.g. `0 (0)`; take the leading count.
+  AE=$(compare -metric AE "$ICON" \
+        "data/icons/hicolor/512x512/apps/$ICON_ID.png" null: 2>&1) || true
+  AE=${AE%% *}
+  [ "$AE" = "0" ] || die "512x512 图标与 icon.png 不一致（差异像素=$AE）"
+else
+  log "提示: 找不到 ImageMagick 的 compare，跳过 512 与 icon.png 的逐像素比对"
+fi
+# 2) 源码树必须能被 GTK 当成图标主题：没有 index.theme 就认不出 data/icons/hicolor
+[ -f "data/icons/hicolor/index.theme" ] \
+  || die "缺少 data/icons/hicolor/index.theme（cargo run 时 GTK 认不出这个主题目录）"
+# 3) 除 icon.png 派生的 PNG 外不许有第二种图（历史 SVG 是另一套美术，必须绝迹）
+if find data/icons -name "*.svg" | grep -q .; then
+  die "data/icons 下存在 SVG：$(find data/icons -name '*.svg')（图标唯一来源是 icon.png）"
+fi
+log "图标: icon.png (512x512) → hicolor 48/64/128/256/512（$ICON_ID），512 逐像素一致 ✓，index.theme 在 ✓，无 SVG ✓"
+
 # ---------- 5. release 构建（--locked） ----------
 log "cargo build --release --locked"
 cargo build --release --locked
 
-# ---------- 6. 四种产物 ----------
+# ---------- 6. 四种产物（统一落在 packaging/，一处交付） ----------
+# cargo deb / cargo generate-rpm 默认把包写进 target/，tarball.sh 以前写
+# dist/ —— 交付物因此散在三个地方。这里先清旧件，打完立刻把 deb/rpm 搬进
+# packaging/，tarball.sh 直接写 packaging/，仓库里不再出现 dist/。
+rm -rf target/debian target/generate-rpm dist
+
 log "deb: cargo deb"
 cargo deb
 
 log "rpm: cargo generate-rpm"
 cargo generate-rpm
 
-log "tar.gz: packaging/tarball.sh（发布布局 + PKGBUILD 源码 tar）"
+log "deb/rpm 移入 packaging/（交付物只放这里）"
+mv -f "target/debian/${NAME}_${VER}-1_amd64.deb" packaging/
+mv -f "target/generate-rpm/${NAME}-${VER}-1.x86_64.rpm" packaging/
+
+log "tar.gz: packaging/tarball.sh（发布布局 + PKGBUILD 源码 tar，直接写 packaging/）"
 ./packaging/tarball.sh
 
 log "Arch: makepkg（Fedora 主机: --nodeps 跳过空 pacman 源；PKGEXT=zst）"
-cp "dist/$NAME-$VER.tar.gz" packaging/
 (
   cd packaging
   PKGEXT='.pkg.tar.zst' makepkg -f --nodeps
@@ -121,13 +180,30 @@ cp "dist/$NAME-$VER.tar.gz" packaging/
 
 # ---------- 7. 产物核验：文件存在 + 版本一致 ----------
 log "产物核验（版本必须 == $VER）"
-DEB="target/debian/${NAME}_${VER}-1_amd64.deb"
-RPM="target/generate-rpm/${NAME}-${VER}-1.x86_64.rpm"
+DEB="packaging/${NAME}_${VER}-1_amd64.deb"
+RPM="packaging/${NAME}-${VER}-1.x86_64.rpm"
 ARCH="packaging/${NAME}-${VER}-1-x86_64.pkg.tar.zst"
-TARBALL="dist/${NAME}-${VER}-x86_64.tar.gz"
+TARBALL="packaging/${NAME}-${VER}-x86_64.tar.gz"
 for f in "$DEB" "$RPM" "$ARCH" "$TARBALL"; do
   [ -f "$f" ] || die "缺少产物: $f（文件名版本与 Cargo.toml 不一致也会落到这里）"
 done
+# 交付物只允许出现在 packaging/：不许再冒出 dist/，也不许把包留在 target/。
+[ ! -d dist ] || die "出现了 dist/ 目录（四件套必须统一放 packaging/）"
+for stale in target/debian/*.deb target/generate-rpm/*.rpm; do
+  [ -e "$stale" ] || continue
+  die "包残留在 target/ 下：$stale（交付物只允许在 packaging/）"
+done
+log "产物只在 packaging/ ✓（无 dist/，target/ 无包）"
+# 源码 tar 是 PKGBUILD 的输入，绝不能把 packaging/ 下的交付包自己打进去
+# （rsync 按目录排除，packaging/ 里新增的 deb/rpm 必须显式排除）。
+SRC_TAR="packaging/${NAME}-${VER}.tar.gz"
+[ -f "$SRC_TAR" ] || die "缺少源码 tar: $SRC_TAR"
+SRC_LIST=$(tar -tzf "$SRC_TAR")
+case "$SRC_LIST" in
+  *.deb*|*.rpm*|*.pkg.tar.*)
+    die "源码 tar 混进了包文件：$SRC_TAR（packaging/ 下的 deb/rpm 必须被排除）" ;;
+esac
+log "源码 tar 未混入包 ✓（$SRC_TAR）"
 if command -v dpkg-deb >/dev/null 2>&1; then
   DV=$(dpkg-deb -f "$DEB" Version)
   case "$DV" in
@@ -163,6 +239,44 @@ if command -v rpm >/dev/null 2>&1; then
   log "rpm Version: $RV"
 fi
 
+# 图标必须真的进包（用变量承接输出，避免 pipefail + grep -q 的 SIGPIPE 误判）
+ICON_PATH="hicolor/512x512/apps/$ICON_ID.png"
+if command -v dpkg-deb >/dev/null 2>&1; then
+  DEB_LIST=$(dpkg-deb -c "$DEB")
+  case "$DEB_LIST" in *"$ICON_PATH"*) ;; *) die "deb 内缺 512x512 图标 $ICON_PATH" ;; esac
+fi
+if command -v rpm >/dev/null 2>&1; then
+  RPM_LIST=$(rpm -qlp "$RPM")
+  case "$RPM_LIST" in *"$ICON_PATH"*) ;; *) die "rpm 内缺 512x512 图标 $ICON_PATH" ;; esac
+fi
+TAR_LIST=$(tar -tzf "$TARBALL")
+case "$TAR_LIST" in *"$ICON_PATH"*) ;; *) die "tar.gz 内缺 512x512 图标 $ICON_PATH" ;; esac
+if ARCH_LIST=$(tar --zstd -tf "$ARCH" 2>/dev/null); then
+  case "$ARCH_LIST" in *"$ICON_PATH"*) ;; *) die "Arch 包内缺 512x512 图标 $ICON_PATH" ;; esac
+else
+  log "提示: 当前 tar 不支持 zstd，跳过 Arch 包内容断言（图标已由源码侧断言保证）"
+fi
+# index.theme 只服务于源码树运行，装机时必须由 hicolor-icon-theme 包提供，
+# 我们带一份会盖掉系统 hicolor 主题定义 —— 四件套都不许带它。
+case "$TAR_LIST" in
+  *"share/icons/hicolor/index.theme"*) die "tar.gz 内含 index.theme（会覆盖系统 hicolor 主题定义）" ;;
+esac
+if command -v dpkg-deb >/dev/null 2>&1; then
+  case "$DEB_LIST" in
+    *"share/icons/hicolor/index.theme"*) die "deb 内含 index.theme（会覆盖系统 hicolor 主题定义）" ;;
+  esac
+fi
+if command -v rpm >/dev/null 2>&1; then
+  case "$RPM_LIST" in
+    *"share/icons/hicolor/index.theme"*) die "rpm 内含 index.theme（会覆盖系统 hicolor 主题定义）" ;;
+  esac
+fi
+if [ -n "${ARCH_LIST:-}" ]; then
+  case "$ARCH_LIST" in
+    *"usr/share/icons/hicolor/index.theme"*) die "Arch 包内含 index.theme（会覆盖系统 hicolor 主题定义）" ;;
+  esac
+fi
+log "index.theme 未进包 ✓（源码树有、包里无）"
 log "四件套齐备（$VER）"
 ls -lh "$DEB" "$RPM" "$ARCH" "$TARBALL"
 sha256sum "$DEB" "$RPM" "$ARCH" "$TARBALL"

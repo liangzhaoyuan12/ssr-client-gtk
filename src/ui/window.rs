@@ -9,6 +9,7 @@ use std::rc::Rc;
 
 use gtk::Builder;
 use gtk::prelude::*;
+use libadwaita::AboutDialog;
 use libadwaita::prelude::*;
 use libadwaita::{
     Application, ApplicationWindow, HeaderBar, NavigationPage, StatusPage, ToastOverlay,
@@ -71,9 +72,15 @@ const FORM_PLACEHOLDERS: &[LabelBinding] = &[
 
 const DASH_LABELS: &[LabelBinding] = &[
     ("dash_proxy_title", |s| s.dash_local_proxy),
-    ("dash_socks5", |s| s.dash_socks5),
-    ("dash_hint", |s| s.dash_copy_hint),
     ("dash_steps_title", |s| s.dash_how_to_use),
+    ("dash_route_title", |s| s.dash_route_title),
+    ("lbl_route_mode", |s| s.route_mode_label),
+    ("lbl_dns", |s| s.dns_label),
+    ("lbl_dns_note", |s| s.dns_note),
+    ("lbl_udp_note", |s| s.route_udp_note),
+    ("lbl_restart_hint", |s| s.route_restart_hint),
+    ("lbl_sysproxy_mode", |s| s.sysproxy_mode_label),
+    ("btn_acl_pick", |s| s.route_acl_pick),
 ];
 
 /// Everything the UI layer touches.
@@ -90,6 +97,8 @@ pub struct Ui {
     pub stack: gtk::Stack,
     pub empty_page: StatusPage,
     pub lang_dropdown: gtk::DropDown,
+    /// Top-right 关于 button (opens [`open_about`]).
+    pub about_btn: gtk::Button,
     pub list: ListUi,
     pub form: FormUi,
     pub dash: DashUi,
@@ -99,6 +108,21 @@ impl Ui {
     /// Load the four `.ui` files, assemble the shell, apply the current
     /// language.
     pub fn new(app: &Application, state: &AppState) -> Self {
+        // Icon search path for source-tree runs. Must happen here, not in
+        // `main()`: the GDK display is only opened when the application starts,
+        // so `IconTheme::for_display` has nothing to attach to before that.
+        // The path lists directories that CONTAIN icon themes (same shape as
+        // `$XDG_DATA_DIRS/icons`) and a theme dir only counts with an
+        // index.theme — `data/icons/hicolor/index.theme` is that file. Without
+        // both, `cargo run` cannot resolve `APP_ID` and the 关于 dialog falls
+        // back to the theme's `image-missing` art instead of icon.png.
+        if let Some(display) = gtk::gdk::Display::default() {
+            let theme = gtk::IconTheme::for_display(&display);
+            theme.add_search_path("data/icons");
+            #[cfg(debug_assertions)]
+            theme.add_search_path(format!("{}/data/icons", env!("CARGO_MANIFEST_DIR")));
+        }
+
         let builder = Builder::from_string(WINDOW_UI);
         let window = builder
             .object::<ApplicationWindow>("window")
@@ -126,7 +150,7 @@ impl Ui {
         // Sub-views from their own builders.
         let list = ListUi::new(Builder::from_string(LIST_UI));
         let form = FormUi::new(Builder::from_string(FORM_UI));
-        let dash = DashUi::new(Builder::from_string(DASH_UI));
+        let dash = DashUi::new(Builder::from_string(DASH_UI), state.strings());
         sidebar_holder.append(&list.root);
         stack.add_titled(&form.root, Some("form"), "form");
         stack.add_titled(&dash.root, Some("dashboard"), "dashboard");
@@ -134,8 +158,17 @@ impl Ui {
         // Header: title + language dropdown.
         let s = state.strings();
         let win_title = WindowTitle::new(s.app_title, s.footer_text);
+        // Same icon name as the .desktop entry and the 关于 dialog.
+        window.set_icon_name(Some(crate::APP_ID));
         let header = HeaderBar::new();
         header.set_title_widget(Some(&win_title));
+        // 关于 — an icon button (the glyph, not the word), packed first so it
+        // ends up rightmost of the two: language dropdown → 关于 → window
+        // controls. `pack_end` places earlier children closer to the end.
+        let about_btn = gtk::Button::from_icon_name("help-about-symbolic");
+        about_btn.set_tooltip_text(Some(s.about_label));
+        about_btn.add_css_class("flat");
+        header.pack_end(&about_btn);
         let lang_dropdown = gtk::DropDown::from_strings(&[s.lang_zh, s.lang_en]);
         lang_dropdown.set_tooltip_text(Some(s.lang_label));
         lang_dropdown.set_selected(match state.lang.get() {
@@ -173,6 +206,7 @@ impl Ui {
             stack,
             empty_page,
             lang_dropdown,
+            about_btn,
             list,
             form,
             dash,
@@ -201,6 +235,10 @@ impl Ui {
         self.sidebar_page.set_title(s.cfg_list_title);
         self.update_empty_state(state);
         self.lang_dropdown.set_tooltip_text(Some(s.lang_label));
+        // Icon button: only the tooltip (and the accessible name) are text.
+        self.about_btn.set_tooltip_text(Some(s.about_label));
+        self.about_btn
+            .update_property(&[gtk::accessible::Property::Label(s.about_label)]);
 
         let set_labels = |builder: &Builder, table: &[LabelBinding]| {
             for (id, get) in table {
@@ -224,6 +262,7 @@ impl Ui {
         if let Some(steps) = self.dash.builder.object::<gtk::Label>("dash_steps") {
             steps.set_label(&s.steps.join("\n\n"));
         }
+        crate::ui::dashboard::rebuild_routing_text(self, state);
 
         // Mode-dependent titles.
         let (form_title, page_title) = match state.view.get() {
@@ -261,6 +300,31 @@ pub fn show_dashboard(ui: &Rc<Ui>, state: &AppState) {
     ui.stack.set_visible_child_name("dashboard");
     ui.content_page.set_title(state.strings().pc_title);
     update_status(ui, state);
+}
+
+/// Select a profile the way a sidebar click does: remember it (persisted, so
+/// the next launch reopens the same row — GOAL 7.12), highlight it in the
+/// list and open its dashboard. Shared by the click handler, the start-up
+/// restore and the QA `SSR_GTK_DEV_SELECT` hook.
+pub fn select_profile(ui: &Rc<Ui>, state: &Rc<AppState>, name: &str) {
+    *state.selected.borrow_mut() = Some(name.to_string());
+    state.save_selected();
+    highlight_row(ui, name);
+    show_dashboard(ui, state);
+}
+
+/// Highlight `name`'s sidebar row without rebuilding the list: the rows may
+/// already exist (start-up restore) and rebuilding from inside
+/// `row_activated` would yank the row out from under the running signal.
+fn highlight_row(ui: &Ui, name: &str) {
+    let mut i = 0;
+    while let Some(row) = ui.list.cfg_list.row_at_index(i) {
+        if list::row_name(&row).as_deref() == Some(name) {
+            ui.list.cfg_list.select_row(Some(&row));
+            return;
+        }
+        i += 1;
+    }
 }
 
 /// Open the form: `Some(name)` = edit mode (fields prefilled, name frozen).
@@ -315,6 +379,7 @@ fn save_form(ui: &Rc<Ui>, state: &Rc<AppState>) {
             };
             toast(&ui.toast_overlay, msg);
             *state.selected.borrow_mut() = Some(input.name.clone());
+            state.save_selected();
             state.refresh_names();
             list::rebuild(ui, state);
             show_dashboard(ui, state);
@@ -327,6 +392,14 @@ fn save_form(ui: &Rc<Ui>, state: &Rc<AppState>) {
 
 /// Connect every signal (GOAL 4.1) and start the event/cleanup helpers.
 pub fn wire(ui: Rc<Ui>, state: Rc<AppState>) {
+    // --- header: 关于 ---------------------------------------------------
+    {
+        let ui = ui.clone();
+        let state = state.clone();
+        let btn = ui.about_btn.clone();
+        btn.connect_clicked(move |_| open_about(&ui, &state));
+    }
+
     // --- sidebar -------------------------------------------------------
     {
         let ui = ui.clone();
@@ -347,8 +420,7 @@ pub fn wire(ui: Rc<Ui>, state: Rc<AppState>) {
                     toast(&ui.toast_overlay, &error_text(&e, s));
                     return;
                 }
-                *state.selected.borrow_mut() = Some(name);
-                show_dashboard(&ui, &state);
+                select_profile(&ui, &state, &name);
             }
         });
     }
@@ -431,6 +503,7 @@ pub fn wire(ui: Rc<Ui>, state: Rc<AppState>) {
 
             let proxy = state.proxy.clone();
             let sys = state.sys.clone();
+            let s = state.strings();
             let (tx, rx) = async_channel::unbounded::<()>();
             std::thread::spawn(move || {
                 let _ = proxy.disable();
@@ -438,6 +511,11 @@ pub fn wire(ui: Rc<Ui>, state: Rc<AppState>) {
                     let _ = sys.disable(snap);
                 }
                 let _ = Snapshot::remove();
+                // Closing the window must not be silent: announce it the way
+                // the stop button does. Sent here, before tx fires, so the
+                // main loop only destroys the window once notify-send has
+                // finished — otherwise the app could exit underneath it.
+                crate::notify::desktop_notify(s.app_title, s.pc_close_stopped);
                 let _ = tx.send_blocking(());
             });
 
@@ -455,6 +533,9 @@ pub fn wire(ui: Rc<Ui>, state: Rc<AppState>) {
     // --- proxy lifecycle events from the core ---------------------------
     spawn_event_loop(ui.clone(), state.clone());
 
+    // --- routing / DNS card ---------------------------------------------
+    dashboard::wire_routing(&ui, &state);
+
     // --- initial paint ---------------------------------------------------
     ui.apply_strings(&state);
     list::rebuild(&ui, &state);
@@ -463,6 +544,64 @@ pub fn wire(ui: Rc<Ui>, state: Rc<AppState>) {
 
 /// Enable or disable the proxy depending on current state — shared by
 /// the dashboard toggle button and the QA hooks in `main`.
+/// The 关于 dialog: project address, author, version, licence and icon.
+/// `AdwAboutDialog` is the libadwaita 1.6+ replacement for the deprecated
+/// `AdwAboutWindow`.
+pub fn open_about(ui: &Rc<Ui>, state: &AppState) {
+    let s = state.strings();
+    let lang = state.lang.get();
+    // Build and present inside the locale flip: the dialog's stock row labels
+    // (Website / Credits / Legal information) are gettext strings created here.
+    with_messages_locale(lang, || {
+        let dialog = AboutDialog::new();
+        dialog.set_application_name(s.app_title);
+        dialog.set_application_icon(crate::APP_ID);
+        dialog.set_version(env!("CARGO_PKG_VERSION"));
+        // The main page shows icon, name, version and this developer name;
+        // project address / license / credits live one click away (Details,
+        // Legal, Credits) — libadwaita's standard About layout.
+        dialog.set_developer_name(crate::AUTHOR);
+        dialog.set_comments(s.about_comments);
+        dialog.set_website(crate::PROJECT_URL);
+        dialog.set_developers(&[crate::AUTHOR]);
+        // Free text, not gtk::License::Gpl30: the project is
+        // GPL-3.0-**or-later** and the enum only prints "GPL-3.0".
+        dialog.set_license("GPL-3.0-or-later");
+        dialog.present(Some(&ui.window));
+    });
+}
+
+/// GTK's own strings — the 关于 dialog's `Website` / `Credits` / `Legal
+/// information` rows — are gettext-translated from `LC_MESSAGES`, which
+/// ignores the app's language switch. Those labels are created while the
+/// dialog is built, so point `LC_MESSAGES` at the UI language, build and
+/// present, then restore: the labels keep the language they were built with
+/// and no other code runs with the flipped locale.
+fn with_messages_locale(lang: crate::i18n::Lang, f: impl FnOnce()) {
+    // zh → the Chinese catalog; English → the C locale, which gettext leaves
+    // untranslated (English).
+    let candidates: &[&str] = if lang == crate::i18n::Lang::ZhCn {
+        &["zh_CN.UTF-8", "zh_CN.utf8"]
+    } else {
+        &["en_US.UTF-8", "en_US.utf8", "C.UTF-8", "C"]
+    };
+    unsafe {
+        let prev = libc::setlocale(libc::LC_MESSAGES, std::ptr::null());
+        for cand in candidates {
+            let applied = std::ffi::CString::new(*cand)
+                .map(|c| !libc::setlocale(libc::LC_MESSAGES, c.as_ptr()).is_null())
+                .unwrap_or(false);
+            if applied {
+                break;
+            }
+        }
+        f();
+        if !prev.is_null() {
+            libc::setlocale(libc::LC_MESSAGES, prev);
+        }
+    }
+}
+
 pub fn toggle_proxy(ui: &Rc<Ui>, state: &Rc<AppState>) {
     if state.proxy.is_running() {
         dashboard::start_disable(ui, state);

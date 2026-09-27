@@ -8,10 +8,13 @@ use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
 use crate::config::model::ShadowsocksConfig;
+use crate::config::prefs;
 use crate::config::store::Store;
 use crate::core::proxy::{ProxyEvent, ProxyService, ProxyState};
 use crate::i18n::{LangHandle, Strings};
+use crate::routing::RoutingSettings;
 use crate::sysproxy::SysProxy;
+use crate::sysproxy::SysProxyPref;
 use crate::sysproxy::snapshot::Snapshot;
 
 /// What the content area currently shows.
@@ -50,6 +53,10 @@ pub struct AppState {
     pub cleaned_up: Cell<bool>,
     /// Language handle (persists on change).
     pub lang: LangHandle,
+    /// Routing mode + ACL file + DNS choice (applied on the next enable).
+    pub routing: RefCell<RoutingSettings>,
+    /// Desktop settings vs. environment variables (applied on enable).
+    pub sysproxy_pref: Cell<SysProxyPref>,
 }
 
 impl AppState {
@@ -73,7 +80,44 @@ impl AppState {
             busy: Cell::new(false),
             cleaned_up: Cell::new(false),
             lang: LangHandle::load(),
+            routing: RefCell::new(prefs::load().routing),
+            sysproxy_pref: Cell::new(prefs::load().sysproxy),
         })
+    }
+
+    /// Persist the routing/DNS settings (non-critical on failure: the
+    /// in-memory value still applies to the next enable).
+    pub fn save_routing(&self) {
+        let mut prefs = prefs::load();
+        prefs.routing = self.routing.borrow().clone();
+        if let Err(e) = prefs::save(&prefs) {
+            eprintln!("failed to persist routing settings: {e}");
+        }
+    }
+
+    /// Persist the system-proxy strategy (same rules as [`Self::save_routing`]).
+    pub fn save_sysproxy_pref(&self) {
+        let mut prefs = prefs::load();
+        prefs.sysproxy = self.sysproxy_pref.get();
+        if let Err(e) = prefs::save(&prefs) {
+            eprintln!("failed to persist system-proxy preference: {e}");
+        }
+    }
+
+    /// Persist the sidebar selection so the next launch can restore it
+    /// (non-critical on failure: same rules as [`Self::save_routing`]).
+    pub fn save_selected(&self) {
+        let mut prefs = prefs::load();
+        prefs.selected_profile = self.selected.borrow().clone();
+        if let Err(e) = prefs::save(&prefs) {
+            eprintln!("failed to persist the selected profile: {e}");
+        }
+    }
+
+    /// What the previous run had selected. The caller checks the name is
+    /// still selectable — `names` only holds parseable profiles.
+    pub fn remembered_selection(&self) -> Option<String> {
+        prefs::load().selected_profile
     }
 
     /// Active string table for the current language.

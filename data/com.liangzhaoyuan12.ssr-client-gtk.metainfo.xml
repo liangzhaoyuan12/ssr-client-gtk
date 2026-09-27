@@ -25,7 +25,8 @@
       监听地址固定为 0.0.0.0，请只让可信客户端访问或用防火墙限制。
     </p>
   </description>
-  <url type="homepage">https://cnb.cool/liangzhaoyuan12/ssr-client-rs</url>
+  <url type="homepage">https://github.com/liangzhaoyuan12/ssr-client-gtk</url>
+  <url type="bugtracker">https://github.com/liangzhaoyuan12/ssr-client-gtk/issues</url>
   <developer id="com.liangzhaoyuan12">
     <name>liangzhaoyuan12</name>
   </developer>

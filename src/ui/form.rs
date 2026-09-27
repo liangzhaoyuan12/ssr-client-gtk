@@ -437,4 +437,49 @@ mod tests {
         assert_eq!(base("abc", "s", "p", 1080, 0), Err(FormError::Port));
         assert!(base("abc", "s", "p", 1080, 443).is_ok());
     }
+
+    /// Regression: two SpinButtons sharing one GtkAdjustment write through to
+    /// each other — that is exactly how changing the server port also moved
+    /// the local port below it (and how the UDP timeout moved with the connect
+    /// timeout). Every spin must name its own adjustment, and every named
+    /// adjustment must exist in the file.
+    #[test]
+    fn every_spin_button_owns_its_adjustment() {
+        let xml = include_str!("../../ui/config_form.ui");
+        const SPIN: &str = "<object class=\"GtkSpinButton\" id=\"";
+        const KEY: &str = "<property name=\"adjustment\">";
+
+        let mut uses: Vec<(&str, &str)> = Vec::new();
+        let mut rest = xml;
+        while let Some(start) = rest.find(SPIN) {
+            let after_id = &rest[start + SPIN.len()..];
+            let id_end = after_id.find('"').expect("spin id closed by a quote");
+            let id = &after_id[..id_end];
+            let block_end = after_id.find("</object>").unwrap_or(after_id.len());
+            let block = &after_id[..block_end];
+            if let Some(p) = block.find(KEY) {
+                let value = &block[p + KEY.len()..];
+                let end = value.find("</property>").expect("adjustment value closed");
+                uses.push((id, &value[..end]));
+            }
+            rest = &after_id[block_end..];
+        }
+
+        assert!(!uses.is_empty(), "no SpinButton found — parser broken?");
+        for (i, (a_id, a_adj)) in uses.iter().enumerate() {
+            for (b_id, b_adj) in &uses[i + 1..] {
+                assert_ne!(
+                    a_adj, b_adj,
+                    "{a_id} 与 {b_id} 共用 adjustment `{a_adj}`：改一个字段会带着另一个一起变"
+                );
+            }
+        }
+        for (id, adj) in &uses {
+            let decl = format!("<object class=\"GtkAdjustment\" id=\"{adj}\">");
+            assert!(
+                xml.contains(&decl),
+                "{id} 引用了未声明的 adjustment `{adj}`"
+            );
+        }
+    }
 }

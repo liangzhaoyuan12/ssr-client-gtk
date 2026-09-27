@@ -168,6 +168,9 @@ pub(crate) fn confirm_delete(
             Ok(()) => {
                 if state.selected.borrow().as_deref() == Some(name.as_str()) {
                     *state.selected.borrow_mut() = None;
+                    // The remembered row is gone too — forget it, otherwise
+                    // the next launch would look for a deleted profile.
+                    state.save_selected();
                     super::window::show_empty(&ui_cb, &state);
                 }
                 toast(&ui_cb.toast_overlay, s.cfg_list_delete_success);

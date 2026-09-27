@@ -99,31 +99,159 @@
                   </object>
                 </child>
                 <child>
-                  <object class="GtkLabel" id="dash_socks5">
-                    <property name="label">SOCKS5 代理</property>
-                    <property name="xalign">0</property>
-                    <style>
-                      <class name="dim-label"/>
-                    </style>
-                  </object>
-                </child>
-                <child>
                   <object class="GtkLabel" id="lbl_listen">
                     <property name="label">实际监听 0.0.0.0:1080</property>
                     <property name="xalign">0</property>
                     <property name="selectable">True</property>
                   </object>
                 </child>
+              </object>
+            </property>
+          </object>
+        </child>
+
+        <!-- routing + DNS card -->
+        <child>
+          <object class="GtkFrame">
+            <property name="child">
+              <object class="GtkBox" id="route_card_box">
+                <property name="orientation">vertical</property>
+                <property name="spacing">8</property>
+                <property name="margin-start">12</property>
+                <property name="margin-end">12</property>
+                <property name="margin-top">10</property>
+                <property name="margin-bottom">10</property>
                 <child>
-                  <object class="GtkLabel" id="lbl_sysproxy">
-                    <property name="label">系统代理 → 127.0.0.1:1080</property>
+                  <object class="GtkLabel" id="dash_route_title">
+                    <property name="label">路由与 DNS</property>
                     <property name="xalign">0</property>
-                    <property name="selectable">True</property>
+                    <style>
+                      <class name="heading"/>
+                    </style>
                   </object>
                 </child>
                 <child>
-                  <object class="GtkLabel" id="dash_hint">
-                    <property name="label">在浏览器或终端中将代理指向该地址即可</property>
+                  <object class="GtkBox">
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">8</property>
+                    <child>
+                      <object class="GtkLabel" id="lbl_route_mode">
+                        <property name="label">路由规则</property>
+                        <property name="xalign">0</property>
+                        <property name="hexpand">True</property>
+                        <property name="wrap">True</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox" id="route_mode_holder">
+                        <property name="orientation">horizontal</property>
+                        <property name="spacing">6</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox" id="acl_row">
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">8</property>
+                    <property name="visible">False</property>
+                    <child>
+                      <object class="GtkLabel" id="lbl_acl_path">
+                        <property name="label">未选择 ACL 文件</property>
+                        <property name="xalign">0</property>
+                        <property name="hexpand">True</property>
+                        <property name="ellipsize">end</property>
+                        <property name="selectable">True</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkButton" id="btn_acl_pick">
+                        <property name="label">选择文件…</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">8</property>
+                    <child>
+                      <object class="GtkLabel" id="lbl_dns">
+                        <property name="label">DNS 解析</property>
+                        <property name="xalign">0</property>
+                        <property name="hexpand">True</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox" id="dns_mode_holder">
+                        <property name="orientation">horizontal</property>
+                        <property name="spacing">6</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="entry_dns_servers">
+                    <property name="visible">False</property>
+                    <property name="placeholder-text">DNS 服务器 IP，多个用逗号分隔，如 223.5.5.5, 8.8.8.8</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="lbl_dns_note">
+                    <property name="label">本地解析与路由判定使用该 DNS；走代理的域名交给 SSR 服务端解析。</property>
+                    <property name="xalign">0</property>
+                    <property name="wrap">True</property>
+                    <style>
+                      <class name="dim-label"/>
+                      <class name="caption"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">8</property>
+                    <child>
+                      <object class="GtkLabel" id="lbl_sysproxy_mode">
+                        <property name="label">系统代理方式</property>
+                        <property name="xalign">0</property>
+                        <property name="hexpand">True</property>
+                        <property name="wrap">True</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox" id="sysproxy_mode_holder">
+                        <property name="orientation">horizontal</property>
+                        <property name="spacing">6</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="lbl_sysproxy_hint">
+                    <property name="label">由桌面环境自身的代理设置接管（KDE / GNOME 及其衍生）。</property>
+                    <property name="xalign">0</property>
+                    <property name="wrap">True</property>
+                    <style>
+                      <class name="dim-label"/>
+                      <class name="caption"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="lbl_udp_note">
+                    <property name="label">UDP 中继不参与分流，启用后始终经 SSR 转发。</property>
+                    <property name="xalign">0</property>
+                    <property name="wrap">True</property>
+                    <style>
+                      <class name="dim-label"/>
+                      <class name="caption"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="lbl_restart_hint">
+                    <property name="label">路由与 DNS 设置在下次“启用代理”时生效。</property>
                     <property name="xalign">0</property>
                     <property name="wrap">True</property>
                     <style>

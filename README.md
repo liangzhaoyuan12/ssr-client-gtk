@@ -62,13 +62,14 @@ cargo build --release        # 需要系统 gtk4-devel / libadwaita-devel
 gtk4 ≥ 4.18 / libadwaita ≥ 1.7（与 Cargo features `v4_18`/`v1_7` 一致）、
 缺失的 `cargo-deb`/`cargo-generate-rpm` 自动 `cargo install`、`makepkg`/`rsync`
 缺失给出安装指引、核验 features/rpm requires/PKGBUILD depends 三处运行时
-依赖下限一致、`cargo --locked` 保证可复现构建。产物路径：
+依赖下限一致、`cargo --locked` 保证可复现构建。四件套统一落在 **`packaging/`**
+这一处（脚本断言：不再出现 `dist/`，`target/` 下不许留包）：
 
 ```text
-target/debian/ssr-client-gtk_<ver>-1_amd64.deb
-target/generate-rpm/ssr-client-gtk-<ver>-1.x86_64.rpm
-packaging/ssr-client-gtk-<ver>-1-x86_64.pkg.tar.zst
-dist/ssr-client-gtk-<ver>-x86_64.tar.gz
+packaging/ssr-client-gtk_<ver>-1_amd64.deb
+packaging/ssr-client-gtk_<ver>-1.x86_64.rpm
+packaging/ssr-client-gtk_<ver>-1-x86_64.pkg.tar.zst
+packaging/ssr-client-gtk_<ver>-x86_64.tar.gz
 ```
 
 ## 使用 / Usage

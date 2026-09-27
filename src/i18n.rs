@@ -45,6 +45,8 @@ define_strings! {
     app_title,
     app_subtitle,
     lang_label,
+    about_label,
+    about_comments,
     lang_zh,
     lang_en,
     common_loading,
@@ -108,16 +110,14 @@ define_strings! {
     pc_disconnecting,
     pc_success_enabled,
     pc_success_disabled,
+    pc_close_stopped,
     pc_error_enable,
     pc_error_disable,
     pc_unsupported_desktop,
     dash_how_to_use,
     dash_local_proxy,
-    dash_socks5,
     dash_port_label,
     dash_listen_line,
-    dash_sysproxy_line,
-    dash_copy_hint,
     footer_text,
     err_generic,
     err_port_in_use,
@@ -130,6 +130,35 @@ define_strings! {
     err_json,
     err_core,
     err_io,
+    err_acl,
+    err_dns,
+    dash_route_title,
+    route_mode_label,
+    route_global,
+    route_bypass_lan,
+    route_bypass_cn,
+    route_bypass_lan_cn,
+    route_acl,
+    route_acl_file,
+    route_acl_pick,
+    route_acl_none,
+    route_udp_note,
+    route_restart_hint,
+    dns_label,
+    dns_system,
+    dns_custom,
+    dns_servers_placeholder,
+    dns_note,
+    dns_note_ali,
+    dns_note_tencent,
+    dns_ali,
+    dns_tencent,
+    sysproxy_mode_label,
+    sysproxy_desktop,
+    sysproxy_env,
+    sysproxy_desktop_hint,
+    sysproxy_env_hint,
+    sysproxy_env_unknown,
 }
 
 /// Supported UI languages (GOAL D4: only these two).
@@ -160,22 +189,67 @@ impl Lang {
         }
     }
 
-    /// First-launch guess: `LC_ALL`/`LC_MESSAGES`/`LANG` starting with `zh`
-    /// → Chinese, otherwise English (GOAL 4.4 fallback is `en-US`).
+    /// First-launch guess (GOAL 7.13): read the host's message locale and
+    /// answer "简体中文 or English" — those are the only two languages the UI
+    /// ships (GOAL D4), and on the first start there is no saved preference
+    /// to go by.
+    ///
+    /// Rule: **any `zh*` locale → Chinese** — traditional-Chinese hosts read
+    /// the simplified interface too, because that is the only Chinese the UI
+    /// ships (ruling: 繁中电脑也看简中). **Everything else** → English —
+    /// other languages (`ja_JP`, `de_DE`, …) and `C`/POSIX/unset. Either
+    /// way the pick is remembered once the user switches by hand.
+    ///
+    /// GNU's `LANGUAGE` language list is honoured exactly the way gettext
+    /// orders these variables: only when the locale itself is not C/POSIX,
+    /// and it wins over `LC_ALL`/`LC_MESSAGES`/`LANG`.
     pub fn detect() -> Lang {
         for var in ["LC_ALL", "LC_MESSAGES", "LANG"] {
-            if let Ok(v) = std::env::var(var) {
-                let v = v.to_lowercase();
-                if v.starts_with("zh") {
-                    return Lang::ZhCn;
-                }
-                if !v.is_empty() && !v.starts_with("c.") && v != "c" && v != "posix" {
-                    return Lang::EnUs;
-                }
+            let Ok(v) = std::env::var(var) else {
+                continue;
+            };
+            if v.trim().is_empty() {
+                continue;
             }
+            if is_posix_locale(&v) {
+                continue; // "no translation": keep looking further down
+            }
+            let preferred = match std::env::var("LANGUAGE") {
+                Ok(l) if !l.trim().is_empty() => l,
+                _ => v,
+            };
+            return if is_chinese(&preferred) {
+                Lang::ZhCn
+            } else {
+                Lang::EnUs
+            };
         }
         Lang::EnUs
     }
+}
+
+/// `C` / `POSIX`, with or without a codeset or modifier — "no translation",
+/// so it never decides the language by itself.
+fn is_posix_locale(v: &str) -> bool {
+    matches!(locale_head(v).as_str(), "c" | "posix")
+}
+
+/// The part of a locale (or of one entry of a `LANGUAGE` list) that carries
+/// the language: head of the `:` list, codeset/modifier dropped, lower-cased
+/// and `-` normalised to `_`. `zh_CN.UTF-8@pinyin` → `zh_cn`.
+fn locale_head(v: &str) -> String {
+    let head = v.split(':').next().unwrap_or("").trim();
+    let head = head.split('.').next().unwrap_or("");
+    let head = head.split('@').next().unwrap_or("");
+    head.to_lowercase().replace('-', "_")
+}
+
+/// Chinese? The UI ships exactly **one** Chinese (简体), so every `zh*`
+/// locale gets it — traditional-Chinese hosts included (`zh_TW`/`zh_HK`/
+/// `zh_MO`/`zh_Hant`; ruling: 繁中电脑也看简中).
+fn is_chinese(v: &str) -> bool {
+    let head = locale_head(v);
+    head == "zh" || head.starts_with("zh_")
 }
 
 /// Current language handle (set once at startup, updated on switch).
@@ -265,6 +339,8 @@ pub fn error_text(err: &AppError, s: &Strings) -> String {
         AppError::Json(_) => s.err_json.to_string(),
         AppError::Core(_) => s.err_core.to_string(),
         AppError::Io(_) => s.err_io.to_string(),
+        AppError::Acl(_) => s.err_acl.to_string(),
+        AppError::Dns(_) => s.err_dns.to_string(),
     }
 }
 
@@ -273,6 +349,8 @@ pub const ZH: Strings = Strings {
     app_title: "ShadowsocksR 客户端",
     app_subtitle: "Linux 安全代理客户端",
     lang_label: "语言",
+    about_label: "关于",
+    about_comments: "项目地址：https://github.com/liangzhaoyuan12/ssr-client-gtk\n开源协议：GPL-3.0-or-later\n作者：liangzhaoyuan12",
     lang_zh: "中文",
     lang_en: "English",
     common_loading: "加载中...",
@@ -336,16 +414,14 @@ pub const ZH: Strings = Strings {
     pc_disconnecting: "断开中...",
     pc_success_enabled: "代理启用成功！",
     pc_success_disabled: "代理已停用！",
+    pc_close_stopped: "窗口已关闭，代理已停用！",
     pc_error_enable: "启用代理失败",
     pc_error_disable: "停用代理失败",
     pc_unsupported_desktop: "当前桌面环境（{desktop}）不支持自动设置系统代理，请手动指向 127.0.0.1:{port}",
     dash_how_to_use: "使用说明",
     dash_local_proxy: "本地代理设置",
-    dash_socks5: "SOCKS5 代理",
     dash_port_label: "端口",
     dash_listen_line: "实际监听 0.0.0.0:{port}",
-    dash_sysproxy_line: "系统代理 → 127.0.0.1:{port}",
-    dash_copy_hint: "在浏览器或终端中将代理指向该地址即可",
     footer_text: "ShadowsocksR Linux 客户端",
     err_generic: "操作失败",
     err_port_in_use: "端口 {port} 已被占用：请先结束占用该端口的程序，或在配置中改用其他本地端口",
@@ -358,10 +434,37 @@ pub const ZH: Strings = Strings {
     err_json: "配置文件格式错误",
     err_core: "代理核心错误",
     err_io: "文件读写失败",
+    err_acl: "ACL 文件无法读取或格式错误",
+    err_dns: "DNS 设置无效",
+    dash_route_title: "路由、DNS 与系统代理",
+    route_mode_label: "路由规则",
+    route_global: "全局代理（全部流量走代理）",
+    route_bypass_lan: "绕开局域网",
+    route_bypass_cn: "绕开中国大陆",
+    route_bypass_lan_cn: "绕开局域网及中国大陆",
+    route_acl: "自定义 ACL 文件",
+    route_acl_file: "ACL 文件",
+    route_acl_pick: "选择文件…",
+    route_acl_none: "未选择 ACL 文件",
+    route_udp_note: "UDP 中继不参与分流，启用后始终经 SSR 转发。",
+    route_restart_hint: "路由与 DNS 设置在下次“启用代理”时生效。",
+    dns_label: "DNS 解析",
+    dns_system: "系统 DNS",
+    dns_custom: "自定义 DNS",
+    dns_servers_placeholder: "DNS 服务器 IP，多个用逗号分隔，如 223.5.5.5, 8.8.8.8",
+    dns_note: "本地解析与路由判定使用该 DNS；走代理的域名交给 SSR 服务端解析。",
+    dns_note_ali: "阿里云 DoT: dns.alidns.com · DoH: https://dns.alidns.com/dns-query（本客户端仍按 UDP/TCP 53 直连查询，不走 DoT/DoH）。",
+    dns_note_tencent: "腾讯云 DoT: dot.pub · DoH: https://doh.pub/dns-query（本客户端仍按 UDP/TCP 53 直连查询，不走 DoT/DoH）。",
+    dns_ali: "阿里云 DNS",
+    dns_tencent: "腾讯云 DNSPod",
+    sysproxy_mode_label: "系统代理方式",
+    sysproxy_desktop: "桌面设置",
+    sysproxy_env: "环境变量",
+    sysproxy_desktop_hint: "由桌面环境自身的代理设置接管（KDE / GNOME 及其衍生）。",
+    sysproxy_env_hint: "写入 {rc}，仅对新开的终端生效。",
+    sysproxy_env_unknown: "无法确定当前 shell 的配置文件，启用代理时会报错（支持 bash / zsh / fish）。",
     steps: &[
-        "火狐有自己的代理设置，使用火狐浏览器时需要在浏览器设置中改代理设置。推荐在火狐的插件 FoxyProxy 中设置 SOCKS 代理，方便在各种代理环境中一键切换。若使用 Chromium 浏览器则不需要进行此设置。",
-        "启用后，本机只暴露一个端口：经 SSR 协议链路处理后的 SOCKS5 口；GNOME / KDE 等桌面的 GUI 应用会自动跟随系统代理设置。",
-        "终端程序不读取系统代理，需要时可用 proxychains 等工具让特定命令走 SOCKS5 代理。",
+        "火狐有自己的代理设置，需要在火狐浏览器的设置中自行设定代理。",
         "开源协议：GPL-3.0-or-later",
     ],
 };
@@ -371,6 +474,8 @@ pub const EN: Strings = Strings {
     app_title: "ShadowsocksR Client",
     app_subtitle: "Secure proxy client for Linux",
     lang_label: "Language",
+    about_label: "About",
+    about_comments: "Project: https://github.com/liangzhaoyuan12/ssr-client-gtk\nLicense: GPL-3.0-or-later\nAuthor: liangzhaoyuan12",
     lang_zh: "中文",
     lang_en: "English",
     common_loading: "Loading...",
@@ -434,16 +539,14 @@ pub const EN: Strings = Strings {
     pc_disconnecting: "Disconnecting...",
     pc_success_enabled: "Proxy enabled successfully!",
     pc_success_disabled: "Proxy disabled successfully!",
+    pc_close_stopped: "Window closed — proxy disabled!",
     pc_error_enable: "Failed to enable proxy",
     pc_error_disable: "Failed to disable proxy",
     pc_unsupported_desktop: "Desktop environment {desktop} is not supported for automatic system proxy; set it manually to 127.0.0.1:{port}",
     dash_how_to_use: "How to Use",
     dash_local_proxy: "Local Proxy Settings",
-    dash_socks5: "SOCKS5 Proxy",
     dash_port_label: "Port",
     dash_listen_line: "Listening on 0.0.0.0:{port}",
-    dash_sysproxy_line: "System proxy → 127.0.0.1:{port}",
-    dash_copy_hint: "Point your browser or terminal at this address",
     footer_text: "ShadowsocksR Linux Client",
     err_generic: "Operation failed",
     err_port_in_use: "Port {port} is already in use: stop the program holding it, or pick another local port in the config",
@@ -456,10 +559,37 @@ pub const EN: Strings = Strings {
     err_json: "Invalid configuration file format",
     err_core: "Proxy core error",
     err_io: "File I/O error",
+    err_acl: "The ACL file could not be read or parsed",
+    err_dns: "Invalid DNS setting",
+    dash_route_title: "Routing, DNS & System Proxy",
+    route_mode_label: "Routing mode",
+    route_global: "Global (route everything)",
+    route_bypass_lan: "Bypass LAN",
+    route_bypass_cn: "Bypass mainland China",
+    route_bypass_lan_cn: "Bypass LAN and mainland China",
+    route_acl: "Custom ACL file",
+    route_acl_file: "ACL file",
+    route_acl_pick: "Choose file…",
+    route_acl_none: "No ACL file selected",
+    route_udp_note: "The UDP relay is not routed — it always goes through SSR.",
+    route_restart_hint: "Routing and DNS settings apply the next time the proxy is enabled.",
+    dns_label: "DNS resolution",
+    dns_system: "System DNS",
+    dns_custom: "Custom DNS",
+    dns_servers_placeholder: "DNS server IPs, comma separated, e.g. 223.5.5.5, 8.8.8.8",
+    dns_note: "Used for local lookups and routing decisions; proxied domains are resolved by the SSR server.",
+    dns_note_ali: "AliDNS DoT: dns.alidns.com · DoH: https://dns.alidns.com/dns-query (this client still queries plain UDP/TCP 53 — no DoT/DoH).",
+    dns_note_tencent: "DNSPod DoT: dot.pub · DoH: https://doh.pub/dns-query (this client still queries plain UDP/TCP 53 — no DoT/DoH).",
+    dns_ali: "AliDNS (223.5.5.5)",
+    dns_tencent: "DNSPod Public DNS+ (119.29.29.29)",
+    sysproxy_mode_label: "System proxy",
+    sysproxy_desktop: "Desktop settings",
+    sysproxy_env: "Env vars",
+    sysproxy_desktop_hint: "Handled by the desktop's own proxy settings (KDE / GNOME and derivatives).",
+    sysproxy_env_hint: "Written to {rc}; takes effect in newly opened terminals only.",
+    sysproxy_env_unknown: "Cannot determine this shell's rc file — enabling will report an error (bash / zsh / fish supported).",
     steps: &[
-        "Firefox has its own proxy settings. When using Firefox, configure the proxy in browser settings — the FoxyProxy extension makes switching SOCKS profiles one click. Chromium-based browsers do not need this.",
-        "While enabled, the app exposes exactly one port: the SOCKS5 listener after SSR protocol processing. GUI apps on GNOME / KDE desktops follow the system proxy automatically.",
-        "Terminals ignore the system proxy; use a tool like proxychains to send specific commands through the SOCKS5 proxy when needed.",
+        "Firefox has its own proxy settings — set the proxy in Firefox's own settings.",
         "License: GPL-3.0-or-later",
     ],
 };
@@ -528,17 +658,61 @@ mod tests {
 
     #[test]
     fn language_roundtrip_in_settings_file() {
-        let dir = tempfile::tempdir().unwrap();
         // save_lang writes to Snapshot::config_dir(); test serde roundtrip
-        // through the same Settings struct instead of touching $HOME.
-        let s = Settings {
+        // through the same document type instead of touching $HOME.
+        let s = crate::config::prefs::Prefs {
             language: Some(Lang::ZhCn),
+            ..Default::default()
         };
         let text = serde_json::to_string(&s).unwrap();
         assert!(text.contains("zh-CN"));
-        let back: Settings = serde_json::from_str(&text).unwrap();
+        let back: crate::config::prefs::Prefs = serde_json::from_str(&text).unwrap();
         assert_eq!(back.language, Some(Lang::ZhCn));
-        drop(dir);
+    }
+
+    #[test]
+    fn every_chinese_locale_gets_the_chinese_ui() {
+        // 简中与繁中同看简体界面（唯一那门中文）；其他语言一律英语。
+        for v in [
+            "zh",
+            "zh_CN",
+            "zh_CN.UTF-8",
+            "zh-Hans",
+            "zh_Hans_CN",
+            "zh_SG",
+            "zh_CN.UTF-8@pinyin",
+            "zh_CN:en",
+            "zh_TW.UTF-8",
+            "zh_HK",
+            "zh_MO",
+            "zh_Hant",
+            "zh_TW:en",
+        ] {
+            assert!(is_chinese(v), "{v} 应看中文界面");
+        }
+        for v in [
+            "",
+            "C",
+            "C.UTF-8",
+            "POSIX",
+            "en_US.UTF-8",
+            "ja_JP.UTF-8",
+            "fr_FR.UTF-8",
+            "de_DE",
+            "ko_KR",
+        ] {
+            assert!(!is_chinese(v), "{v} 应判为英语");
+        }
+    }
+
+    #[test]
+    fn posix_locales_never_decide_the_language() {
+        assert!(is_posix_locale("C"));
+        assert!(is_posix_locale("c.UTF-8"));
+        assert!(is_posix_locale("POSIX"));
+        assert!(!is_posix_locale("zh_CN.UTF-8"));
+        assert!(!is_posix_locale("en_US"));
+        assert!(!is_posix_locale("zh_TW"));
     }
 
     #[test]

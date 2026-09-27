@@ -312,7 +312,7 @@
             </child>
             <child>
               <object class="GtkSpinButton" id="spin_udp_timeout">
-                <property name="adjustment">adj_timeout_short</property>
+                <property name="adjustment">adj_timeout_udp</property>
                 <property name="value">6</property>
                 <property name="digits">0</property>
               </object>
@@ -333,7 +333,7 @@
             </child>
             <child>
               <object class="GtkSpinButton" id="spin_listen_port">
-                <property name="adjustment">adj_port</property>
+                <property name="adjustment">adj_listen_port</property>
                 <property name="value">1080</property>
                 <property name="digits">0</property>
               </object>
@@ -391,7 +391,27 @@
     <property name="page-increment">10</property>
   </object>
 
+  <!-- One GtkAdjustment per SpinButton: widgets sharing an adjustment write
+       through to each other, which is how editing the server port used to
+       move the local port (and the UDP timeout moved with the connect
+       timeout). -->
+  <object class="GtkAdjustment" id="adj_listen_port">
+    <property name="lower">1</property>
+    <property name="upper">65535</property>
+    <property name="value">1080</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+
   <object class="GtkAdjustment" id="adj_timeout_short">
+    <property name="lower">1</property>
+    <property name="upper">3600</property>
+    <property name="value">6</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
+  </object>
+
+  <object class="GtkAdjustment" id="adj_timeout_udp">
     <property name="lower">1</property>
     <property name="upper">3600</property>
     <property name="value">6</property>

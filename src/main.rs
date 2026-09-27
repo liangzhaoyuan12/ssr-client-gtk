@@ -12,6 +12,7 @@ mod core;
 mod error;
 mod i18n;
 mod notify;
+mod routing;
 mod sysproxy;
 mod ui;
 
@@ -27,9 +28,64 @@ use ui::window::Ui;
 /// (invariant 12: three names must match).
 pub const APP_ID: &str = "com.liangzhaoyuan12.ssr-client-gtk";
 
+/// Project home — shown by the 关于 dialog (`PROJECT_URL`).
+pub const PROJECT_URL: &str = "https://github.com/liangzhaoyuan12/ssr-client-gtk";
+
+/// Author shown in the 关于 dialog.
+pub const AUTHOR: &str = "liangzhaoyuan12";
+
+/// Set by [`record_exit_signal`], read by the 100 ms poll started in
+/// `connect_activate`. Non-zero means "the session asked us to go away".
+static EXIT_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+fn exit_signal_pending() -> bool {
+    EXIT_SIGNAL.load(std::sync::atomic::Ordering::SeqCst) != 0
+}
+
+/// Async-signal-safe: a single atomic store, nothing else.
+extern "C" fn record_exit_signal(sig: libc::c_int) {
+    EXIT_SIGNAL.store(sig, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// SIGHUP / SIGINT / SIGTERM / SIGQUIT would otherwise terminate the process
+/// **before** `close-request` runs: the SOCKS listener dies with the process,
+/// but the desktop proxy stays enabled and points at a port nobody listens on
+/// (实测 SIGTERM → 退出码 143、`ProxyType` 仍是 1)。 The handler only records
+/// the signal; the main loop then closes the window, so the regular cleanup
+/// (stop proxy → restore system proxy → drop snapshot) runs exactly as it does
+/// for a window close. SIGKILL cannot be caught — the leftover snapshot plus
+/// `startup_self_heal` covers that case on the next launch.
+fn install_exit_signal_handlers() {
+    unsafe {
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = record_exit_signal as *const () as usize;
+        sa.sa_flags = libc::SA_RESTART;
+        libc::sigemptyset(&mut sa.sa_mask);
+        for sig in [libc::SIGHUP, libc::SIGINT, libc::SIGTERM, libc::SIGQUIT] {
+            libc::sigaction(sig, &sa, std::ptr::null_mut());
+        }
+    }
+}
+
+/// Turn a recorded exit signal into a normal window close. Runs once — a
+/// second activation (single-instance) must not add a second poller.
+fn hook_exit_signal_to_close(ui: &Rc<Ui>) {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let ui_sig = ui.clone();
+    glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+        if exit_signal_pending() {
+            ui_sig.window.close(); // → close-request → 还原系统代理与快照
+            return glib::ControlFlow::Break;
+        }
+        glib::ControlFlow::Continue
+    });
+}
+
 fn main() {
     let app = Application::builder().application_id(APP_ID).build();
-
     // Single window shared across activations.
     let existing: Rc<RefCell<Option<Rc<Ui>>>> = Rc::new(RefCell::new(None));
 
@@ -54,18 +110,67 @@ fn main() {
         ui::window::wire(ui.clone(), state.clone());
         ui::window::startup_self_heal(ui.clone(), state.clone());
 
+        // GOAL 7.12 — remember the last selection: reopen the profile the
+        // previous run had picked instead of the empty status page, so a
+        // returning user never has to click the same row again. A stale or
+        // unparseable name falls back to the empty state (only parseable
+        // profiles are in `names`).
+        if let Some(name) = state.remembered_selection()
+            && state.names.borrow().contains(&name)
+        {
+            ui::window::select_profile(&ui, &state, &name);
+        }
+
         // QA hooks for screenshot verification (no effect unless set):
         //   SSR_GTK_DEV_SELECT=<profile> → preselect + open its dashboard
         //   SSR_GTK_DEV_FORM=new|edit    → open the config form
         if let Ok(name) = std::env::var("SSR_GTK_DEV_SELECT")
             && state.names.borrow().contains(&name)
         {
-            *state.selected.borrow_mut() = Some(name);
-            ui::window::show_dashboard(&ui, &state);
+            ui::window::select_profile(&ui, &state, &name);
         }
         if let Ok(lang) = std::env::var("SSR_GTK_DEV_LANG") {
             let idx = u32::from(lang != "zh");
             ui.lang_dropdown.set_selected(idx);
+        }
+        //   SSR_GTK_DEV_ROUTE=<id>     → routing dropdown (real notify signal)
+        //   SSR_GTK_DEV_DNS=custom|system / SSR_GTK_DEV_SYSPROXY=desktop|env
+        if let Ok(mode) = std::env::var("SSR_GTK_DEV_ROUTE") {
+            let parsed = serde_json::from_str::<routing::RouteMode>(&format!("\"{mode}\""));
+            if let Ok(wanted) = parsed
+                && let Some(idx) = routing::RouteMode::ALL.iter().position(|m| *m == wanted)
+            {
+                ui.dash.route_mode.set_selected(idx as u32);
+            }
+        }
+        if let Ok(dns) = std::env::var("SSR_GTK_DEV_DNS").as_deref() {
+            let idx = match dns {
+                "system" => 0,
+                "ali" => 2,
+                "tencent" => 3,
+                _ => 1, // custom
+            };
+            ui.dash.dns_mode.set_selected(idx);
+        }
+        if let Ok(sp) = std::env::var("SSR_GTK_DEV_SYSPROXY").as_deref() {
+            ui.dash.sysproxy_mode.set_selected(u32::from(sp == "env"));
+        }
+        //   SSR_GTK_DEV_MAXIMIZE=1 / SSR_GTK_DEV_SCROLL=end → fit more of the
+        //   dashboard into a verification screenshot (windowing only).
+        if std::env::var("SSR_GTK_DEV_MAXIMIZE").is_ok() {
+            ui.window.maximize();
+        }
+        if std::env::var("SSR_GTK_DEV_SCROLL").as_deref() == Ok("end")
+            && let Some(sw) = ui
+                .dash
+                .builder
+                .object::<gtk::ScrolledWindow>("dashboard_root")
+        {
+            let adj = sw.vadjustment();
+            glib::timeout_add_local(std::time::Duration::from_millis(1800), move || {
+                adj.set_value((adj.upper() - adj.page_size()).max(0.0));
+                glib::ControlFlow::Break
+            });
         }
         //   SSR_GTK_DEV_PROXY=enable|disable  → drive the real toggle path
         //   SSR_GTK_DEV_DISABLE_AFTER=<secs>  → scheduled disable (real signal path)
@@ -139,6 +244,23 @@ fn main() {
         }
 
         ui.window.present();
+
+        // SIGHUP / SIGINT / SIGTERM → normal close, so the proxy is stopped
+        // and the desktop proxy restored instead of being left dangling.
+        install_exit_signal_handlers();
+        hook_exit_signal_to_close(&ui);
+
+        //   SSR_GTK_DEV_ABOUT=1 → open the 关于 dialog, but only after the
+        //   window is mapped (a dialog shown first has no parent to grab).
+        if std::env::var("SSR_GTK_DEV_ABOUT").is_ok() {
+            let ui_about = ui.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(600), move || {
+                // Fire the real button's `clicked` signal so this exercises the
+                // button → dialog wiring, not a second copy of it.
+                ui_about.about_btn.emit_by_name::<()>("clicked", &[]);
+                glib::ControlFlow::Break
+            });
+        }
 
         *existing2.borrow_mut() = Some(ui);
     });

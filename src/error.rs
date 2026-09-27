@@ -47,6 +47,14 @@ pub enum AppError {
     /// A system-proxy command (gsettings / kwriteconfig5 / dbus…) failed.
     #[error("system proxy: {0}")]
     SysProxy(String),
+
+    /// The custom ACL file is missing, unreadable or malformed.
+    #[error("acl: {0}")]
+    Acl(String),
+
+    /// The custom DNS setting is invalid (bad server list, empty selection).
+    #[error("dns: {0}")]
+    Dns(String),
 }
 
 impl AppError {

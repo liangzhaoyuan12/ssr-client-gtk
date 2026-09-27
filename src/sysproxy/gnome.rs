@@ -28,17 +28,15 @@ fn reset(sp: &SysProxy, schema: &str, key: &str) -> AppResult<()> {
 /// Snapshot mode/host/port, point GNOME at our SOCKS5.
 ///
 /// Ordering: host → port → `mode = 'manual'` last, so GNOME never sees a
-/// `manual` mode with a half-written address.
+/// `manual` mode with a half-written address. A failing write rolls the
+/// keys already written back to the snapshot, so a broken `gsettings` can
+/// never leave the desktop pointed at a port we are about to close.
 pub(crate) fn enable(sp: &SysProxy, port: u16) -> AppResult<Snapshot> {
     let host = get(sp, SCHEMA_SOCKS, "host")?;
     let socks_port = get(sp, SCHEMA_SOCKS, "port")?;
     let mode = get(sp, SCHEMA_MODE, "mode")?;
 
-    set(sp, SCHEMA_SOCKS, "host", "'127.0.0.1'")?;
-    set(sp, SCHEMA_SOCKS, "port", &port.to_string())?;
-    set(sp, SCHEMA_MODE, "mode", "'manual'")?;
-
-    Ok(Snapshot {
+    let snap = Snapshot {
         backend: "gnome".into(),
         settings: vec![
             Setting {
@@ -57,7 +55,20 @@ pub(crate) fn enable(sp: &SysProxy, port: u16) -> AppResult<Snapshot> {
                 value: mode,
             },
         ],
-    })
+    };
+
+    let writes: [(&str, &str, String); 3] = [
+        (SCHEMA_SOCKS, "host", "'127.0.0.1'".to_string()),
+        (SCHEMA_SOCKS, "port", port.to_string()),
+        (SCHEMA_MODE, "mode", "'manual'".to_string()),
+    ];
+    for (schema, key, value) in writes {
+        if let Err(e) = set(sp, schema, key, &value) {
+            let _ = restore(sp, &snap); // all-or-nothing
+            return Err(e);
+        }
+    }
+    Ok(snap)
 }
 
 /// Restore host → port → mode (mode last, mirroring `enable`); settings

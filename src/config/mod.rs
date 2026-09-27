@@ -6,4 +6,5 @@
 
 pub mod model;
 pub mod path;
+pub mod prefs;
 pub mod store;
