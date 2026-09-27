@@ -1752,7 +1752,8 @@ dependencies = [
 [[package]]
 name = "ssr-client-rs"
 version = "0.1.0"
-source = "git+https://cnb.cool/liangzhaoyuan12/ssr-client-rs#415c0531b68ffb6c7e7e32e7c94952137fec3428"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fc8cb635193c9e201187fcbd30ac4845bc5f84d761cf39271ee7e7b52041839"
 dependencies = [
  "aes",
  "aes-gcm",

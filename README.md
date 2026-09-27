@@ -13,12 +13,12 @@ stop the proxy, with automatic system-proxy handling.
 
 ## 系统要求 / Requirements
 
-- GTK ≥ 4.18、libadwaita ≥ 1.7（即 GNOME 48 / Fedora 42+ 同期及以上）
+- GTK ≥ 4.18、libadwaita ≥ 1.5（即 GNOME 47 / Deepin 25 同期及以上）
 - 一个可用的 ShadowsocksR 服务端地址
 - 系统代理自动设置目前支持 **KDE Plasma** 与 **GNOME 系**（含 Cinnamon /
   MATE / Ubuntu / deepin / COSMIC 等）；其他桌面会提示手动配置
 
-- GTK ≥ 4.18 and libadwaita ≥ 1.7 (the GNOME 48 / Fedora 42+ generation or newer)
+- GTK ≥ 4.18 and libadwaita ≥ 1.5 (the GNOME 47 / Deepin 25 generation or newer)
 - A working ShadowsocksR server to connect to
 - Automatic system proxy currently supports **KDE Plasma** and **GNOME-based**
   desktops; elsewhere the app tells you how to configure it manually
@@ -59,7 +59,7 @@ cargo build --release        # 需要系统 gtk4-devel / libadwaita-devel
 版本单一来源 = `Cargo.toml`：脚本读取后自动同步 `packaging/PKGBUILD` 的
 `pkgver`，构建完断言四个产物文件名与包内版本（deb `Version` / rpm
 `%{VERSION}`）== `Cargo.toml` 版本，不一致即失败。依赖处理：核验构建环境
-gtk4 ≥ 4.18 / libadwaita ≥ 1.7（与 Cargo features `v4_18`/`v1_7` 一致）、
+gtk4 ≥ 4.18 / libadwaita ≥ 1.5（与 Cargo features `v4_18`/`v1_5` 一致）、
 缺失的 `cargo-deb`/`cargo-generate-rpm` 自动 `cargo install`、`makepkg`/`rsync`
 缺失给出安装指引、核验 features/rpm requires/PKGBUILD depends 三处运行时
 依赖下限一致、`cargo --locked` 保证可复现构建。四件套统一落在 **`packaging/`**

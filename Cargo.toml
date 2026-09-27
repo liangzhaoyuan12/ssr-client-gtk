@@ -13,9 +13,9 @@ categories = ["gui", "network-programming"]
 [dependencies]
 libc = "0.2"
 gtk = { package = "gtk4", version = "0.11", features = ["v4_18"] }
-libadwaita = { version = "0.9", features = ["v1_7", "gtk_v4_18"] }
+libadwaita = { version = "0.9", features = ["v1_5", "gtk_v4_18"] }
 glib = "0.22"
-ssr-client-rs = { git = "https://cnb.cool/liangzhaoyuan12/ssr-client-rs" }
+ssr-client-rs = "0.1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -43,7 +43,7 @@ A native GTK4 + libadwaita desktop client for ShadowsocksR, linking the
 ssr-client-rs core in-process. One click to start/stop the proxy; while
 enabled exactly one TCP port is listening (the routed SOCKS5 port) and the
 desktop system proxy follows it. UI in Chinese and English."""
-depends = "$auto, libgtk-4-1 (>= 4.18), libadwaita-1-0 (>= 1.7)"
+depends = "$auto, libgtk-4-1 (>= 4.18), libadwaita-1-0 (>= 1.5)"
 section = "net"
 priority = "optional"
 assets = [
@@ -78,7 +78,7 @@ assets = [
 
 [package.metadata.generate-rpm.requires]
 gtk4 = ">= 4.18"
-libadwaita = ">= 1.7"
+libadwaita = ">= 1.5"
 
 [package.metadata.generate-rpm.metadata]
 summary = "GTK4/libadwaita ShadowsocksR client (single-port SOCKS5)"

@@ -286,8 +286,13 @@ mod tests {
 
     #[test]
     fn detect_desktop_from_env_table() {
-        // The real process env is KDE here...
-        assert_eq!(detect_desktop(), Desktop::Kde);
+        // `detect_desktop()` must classify whatever the real process env says
+        // (written on the Fedora/KDE box as "KDE here…", but this repo is also
+        // built on Deepin/DDE → derive the expectation instead of hardcoding).
+        let raw = std::env::var("XDG_CURRENT_DESKTOP")
+            .or_else(|_| std::env::var("DESKTOP_SESSION"))
+            .unwrap_or_default();
+        assert_eq!(detect_desktop(), classify_desktop(&raw));
         // ...and the table itself is exercised through the pure classifier.
         for token in [
             "GNOME",

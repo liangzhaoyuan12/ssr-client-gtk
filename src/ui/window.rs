@@ -545,7 +545,7 @@ pub fn wire(ui: Rc<Ui>, state: Rc<AppState>) {
 /// Enable or disable the proxy depending on current state — shared by
 /// the dashboard toggle button and the QA hooks in `main`.
 /// The 关于 dialog: project address, author, version, licence and icon.
-/// `AdwAboutDialog` is the libadwaita 1.6+ replacement for the deprecated
+/// `AdwAboutDialog` is the libadwaita 1.5+ replacement for the deprecated
 /// `AdwAboutWindow`.
 pub fn open_about(ui: &Rc<Ui>, state: &AppState) {
     let s = state.strings();

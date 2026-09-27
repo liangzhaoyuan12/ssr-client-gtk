@@ -14,11 +14,11 @@
 # 依赖问题：
 #   - 构建库：优先 source 用户态 sysroot（~/.local/gtk-sysroot/env.sh，
 #     本机无 sudo 装 devel 的方案），否则用系统 pkg-config；随后核验
-#     gtk4 >= 4.18、libadwaita-1 >= 1.7（与 Cargo features v4_18/v1_7 一致）。
+#     gtk4 >= 4.18、libadwaita-1 >= 1.5（与 Cargo features v4_18/v1_5 一致）。
 #   - 打包工具：cargo-deb / cargo-generate-rpm 缺失时自动 cargo install；
 #     makepkg / rsync 缺失给出安装指引后退出（需 sudo，脚本不代做）。
 #   - 运行时依赖声明：核验三处（Cargo features、rpm requires、PKGBUILD
-#     depends）的版本下限一致（4.18 / 1.7）。
+#     depends）的版本下限一致（4.18 / 1.5）。
 #   - 可复现构建：cargo --locked（Cargo.lock 须存在且与 Cargo.toml 匹配）。
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -51,7 +51,7 @@ version_ge() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]; 
 GTK_VER=$(pkg-config --modversion gtk4)
 ADW_VER=$(pkg-config --modversion libadwaita-1)
 version_ge "$GTK_VER" 4.18 || die "gtk4 $GTK_VER < 4.18（Cargo features 要求 v4_18）"
-version_ge "$ADW_VER" 1.7 || die "libadwaita $ADW_VER < 1.7（Cargo features 要求 v1_7）"
+version_ge "$ADW_VER" 1.5 || die "libadwaita $ADW_VER < 1.5（Cargo features 要求 v1_5）"
 log "构建环境: gtk4 $GTK_VER / libadwaita $ADW_VER"
 
 # ---------- 2. 打包工具 ----------
@@ -89,13 +89,13 @@ if ! grep -q "^pkgver=$VER\$" packaging/PKGBUILD; then
 fi
 # 运行时依赖声明三处一致性（features / rpm / PKGBUILD）
 grep -q '"v4_18"' Cargo.toml || die "Cargo.toml features 缺 v4_18"
-grep -q '"v1_7"' Cargo.toml || die "Cargo.toml features 缺 v1_7"
+grep -q '"v1_5"' Cargo.toml || die "Cargo.toml features 缺 v1_5"
 grep -q 'gtk4 = ">= 4.18"' Cargo.toml || die "rpm requires 的 gtk4 下限不是 >= 4.18"
-grep -q 'libadwaita = ">= 1.7"' Cargo.toml || die "rpm requires 的 libadwaita 下限不是 >= 1.7"
+grep -q 'libadwaita = ">= 1.5"' Cargo.toml || die "rpm requires 的 libadwaita 下限不是 >= 1.5"
 grep -q "'gtk4>=4.18'" packaging/PKGBUILD || die "PKGBUILD depends 的 gtk4 下限不是 >=4.18"
-grep -q "'libadwaita>=1.7'" packaging/PKGBUILD || die "PKGBUILD depends 的 libadwaita 下限不是 >=1.7"
+grep -q "'libadwaita>=1.5'" packaging/PKGBUILD || die "PKGBUILD depends 的 libadwaita 下限不是 >=1.5"
 grep -q 'libgtk-4-1 (>= 4.18)' Cargo.toml || die "deb depends 的 libgtk-4-1 下限不是 (>= 4.18)"
-grep -q 'libadwaita-1-0 (>= 1.7)' Cargo.toml || die "deb depends 的 libadwaita-1-0 下限不是 (>= 1.7)"
+grep -q 'libadwaita-1-0 (>= 1.5)' Cargo.toml || die "deb depends 的 libadwaita-1-0 下限不是 (>= 1.5)"
 log "版本: $VER（已核验 features/rpm/PKGBUILD 依赖下限一致）"
 
 # ---------- 4b. 图标：唯一来源 = 仓库根目录 icon.png ----------
@@ -217,8 +217,8 @@ if command -v dpkg-deb >/dev/null 2>&1; then
     *) die "deb Depends 缺 'libgtk-4-1 (>= 4.18)'：实际 = [$DEB_DEPS]" ;;
   esac
   case "$DEB_DEPS" in
-    *"libadwaita-1-0 (>= 1.7)"*) ;;
-    *) die "deb Depends 缺 'libadwaita-1-0 (>= 1.7)'：实际 = [$DEB_DEPS]" ;;
+    *"libadwaita-1-0 (>= 1.5)"*) ;;
+    *) die "deb Depends 缺 'libadwaita-1-0 (>= 1.5)'：实际 = [$DEB_DEPS]" ;;
   esac
   # $auto = dpkg-shlibdeps 解析 ELF 自动依赖；仅在 Debian 系（有系统库
   # shlibs 记录）构建机上展开。非 Debian 系会静默跳过（cargo-deb 只发

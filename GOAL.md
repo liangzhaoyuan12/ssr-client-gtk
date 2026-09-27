@@ -94,7 +94,7 @@ GTK 开发头文件 未安装：pkg-config 查不到 gtk4 / libadwaita-1（只�
 | 项 | 选择 | 版本 / feature | 依据 |
 |---|---|---|---|
 | GUI | `gtk4` crate | `0.11` + `features = ["v4_18"]` | 对应 GTK 4.18（你指定的目标版本） |
-| 设计层 | `libadwaita` crate | `0.9` + `features = ["v1_7", "gtk_v4_18"]` | libadwaita 1.7 与 GTK 4.18 精确配对（0.9.2 的 `v1_7`/`gtk_v4_18` feature 已实查存在；两者依赖同源 `gtk4 ^0.11`） |
+| 设计层 | `libadwaita` crate | `0.9` + `features = ["v1_5", "gtk_v4_18"]` | 目标系统 libadwaita 只有 1.5（Deepin 25），故下限取 `v1_5`；0.9.2 的 `v1_5`/`gtk_v4_18` feature 已实查存在，两者依赖同源 `gtk4 ^0.11` |
 | 绑定基线 | `glib/gio/gdk4` | `0.22` / `0.11`（由上两者带动） | gtk-rs 同一发布列车 |
 | Rust | edition 2024（`Cargo.toml` 已是） | `rust-version = "1.92"` | `gtk4 0.11.5` 声明的 MSRV，本机 1.97.1 满足 |
 | 代理核心 | `ssr-client-rs` | git 依赖，锁 `Cargo.lock` | 见 §2.2 |
@@ -108,7 +108,7 @@ GTK 开发头文件 未安装：pkg-config 查不到 gtk4 / libadwaita-1（只�
 | 打包 | **Arch（PKGBUILD）+ deb + rpm + tar.gz** 四件套 | `cargo-deb` / `cargo-generate-rpm`（Phase 6 安装）；Arch 用**本机 `makepkg`**（pacman 7.0.0 已装）；tar.gz 用 `tar -czf` | 你指定的发布形态；本机工具可用性实测见 §2.3 |
 | 许可证 | GPL-3.0-or-later | `LICENSE` 文件必须落盘 | `ssr-client-rs` 是 GPL-3.0-or-later，分发必须兼容 |
 
-**运行时最低要求（写进 README 与打包依赖）**：GTK ≥ 4.18、libadwaita ≥ 1.7（即 GNOME 48 / Fedora 42+ 同期及以上）。本机 4.22/1.9 向下兼容，可直接运行。
+**运行时最低要求（写进 README 与打包依赖）**：GTK ≥ 4.18、libadwaita ≥ 1.5（与目标系统 Deepin 25 的 1.5.0 对齐）。本机 4.22/1.9 向下兼容，可直接运行。
 
 ---
 
