@@ -14,7 +14,9 @@
 pub mod env;
 pub mod gnome;
 pub mod kde;
+pub mod macos;
 pub mod snapshot;
+pub mod windows;
 
 use std::sync::Arc;
 
@@ -41,10 +43,26 @@ pub struct CommandRunner;
 
 impl Runner for CommandRunner {
     fn output(&self, program: &str, args: &[&str]) -> Result<String, String> {
-        let out = std::process::Command::new(program)
-            .args(args)
-            .output()
-            .map_err(|e| format!("{program}: {e}"))?;
+        let mut cmd = std::process::Command::new(program);
+        cmd.args(args);
+        // A GUI-launched app gets a minimal PATH — Finder gives
+        // `/usr/bin:/bin:/usr/sbin:/sbin` at best and some sessions drop
+        // `/usr/sbin`, where `networksetup` lives; a bare program name
+        // must still resolve, so prepend the system sbin dirs.
+        #[cfg(unix)]
+        {
+            if !program.contains('/') {
+                let mut path = std::ffi::OsString::from("/usr/sbin:/sbin");
+                if let Some(base) = std::env::var_os("PATH")
+                    && !base.is_empty()
+                {
+                    path.push(":");
+                    path.push(base);
+                }
+                cmd.env("PATH", path);
+            }
+        }
+        let out = cmd.output().map_err(|e| format!("{program}: {e}"))?;
         if !out.status.success() {
             let status = out.status;
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -58,11 +76,30 @@ impl Runner for CommandRunner {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Desktop {
     /// KDE Plasma — `kwriteconfig5`/`kreadconfig5` + KIO dbus reparse.
+    /// Only the Unix XDG classifier builds it, so on Windows/macOS the
+    /// variant is never constructed — hence the conditional `allow`,
+    /// without which `cargo clippy -- -D warnings` (the gate in
+    /// `build-win.ps1` / `build-mac.sh`) fails on those hosts.
+    #[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
     Kde,
     /// GNOME and derivatives (Cinnamon, MATE, Ubuntu, deepin, uos,
-    /// COSMIC, Budgie, Pantheon…) — `gsettings`.
+    /// COSMIC, Budgie, Pantheon…) — `gsettings`. Same story as `Kde`.
+    #[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
     Gnome,
+    /// Windows — WinINET registry keys pointing at our **HTTP** front-end
+    /// (GOAL §11 B2/D10: Windows has no native SOCKS). Constructed by
+    /// `detect_desktop()` on Windows; the `allow` only covers the builds
+    /// for other targets, where that cfg is compiled out.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Windows,
+    /// macOS — `networksetup` SOCKS proxy (GOAL §11 B3/D11). Same story:
+    /// only `detect_desktop()` on macOS builds it.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Macos,
     /// Anything else: no automatic system proxy (manual-setup toast).
+    /// Built by `classify_desktop()`, which only exists in the Unix
+    /// (non-macOS) detector, so Windows/macOS need the conditional `allow`.
+    #[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
     Unsupported(String),
 }
 
@@ -74,11 +111,17 @@ pub enum Desktop {
 /// `Pop:GNOME` all land here. `DDE` is deepin/UOS's `XDG_CURRENT_DESKTOP`
 /// value — the session name (`deepin`, `uos`) is the fallback that catches
 /// it when the XDG variable says something else.
+/// The table only feeds the Unix XDG detector (`detect_desktop()` has a
+/// Windows/macOS branch that never calls it) — without the conditional
+/// `allow`, those builds report `GNOME_TOKENS`/`classify_desktop` as dead
+/// code and the packaging scripts' `clippy -D warnings` gate fails there.
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
 const GNOME_TOKENS: [&str; 10] = [
     "GNOME", "UNITY", "CINNAMON", "MATE", "BUDGIE", "DEEPIN", "UOS", "DDE", "PANTHEON", "UKUI",
 ];
 
 /// Classify a raw desktop string (pure; unit-tested against the tokens).
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
 pub fn classify_desktop(raw: &str) -> Desktop {
     let upper = raw.to_uppercase();
     if upper.contains("KDE") || upper.contains("PLASMA") {
@@ -92,13 +135,88 @@ pub fn classify_desktop(raw: &str) -> Desktop {
     }
 }
 
+impl Desktop {
+    /// Whether this desktop has an automatic proxy backend. Unsupported
+    /// desktops only ever offer the env-var strategy — the UI greys the
+    /// desktop row out on them.
+    pub fn is_supported(&self) -> bool {
+        !matches!(self, Desktop::Unsupported(_))
+    }
+
+    /// Whether the env-var strategy exists on this platform
+    /// (decision D14, 2026-09-27): **Windows is desktop-proxy only** —
+    /// its env-var row reads "unsupported" and is greyed out, because the
+    /// WinINET registry path already covers every Windows consumer and a
+    /// `HKCU\Environment` backend would only help CLI tools. Linux and
+    /// macOS keep both strategies.
+    pub fn env_supported(&self) -> bool {
+        !matches!(self, Desktop::Windows)
+    }
+
+    /// Family name for messages: `KDE` / `GNOME` / `Windows` / `macOS`,
+    /// or the raw desktop string recorded for an unsupported one.
+    pub fn label(&self) -> &str {
+        match self {
+            Desktop::Kde => "KDE",
+            Desktop::Gnome => "GNOME",
+            Desktop::Windows => "Windows",
+            Desktop::Macos => "macOS",
+            Desktop::Unsupported(name) => name,
+        }
+    }
+
+    /// Desktop string shown to the user: the detected
+    /// `XDG_CURRENT_DESKTOP` value when there is one (so a deepin box
+    /// reads `DDE`), the family name otherwise. Unsupported desktops
+    /// always carry their own raw string; Windows/macOS answer by OS
+    /// (they never read the XDG variables — GOAL §11 B1).
+    pub fn display_name(&self) -> String {
+        match self {
+            Desktop::Unsupported(name) => name.clone(),
+            Desktop::Windows | Desktop::Macos => self.label().to_string(),
+            family => {
+                let raw = desktop_env_raw();
+                if raw.is_empty() {
+                    family.label().to_string()
+                } else {
+                    raw
+                }
+            }
+        }
+    }
+}
+
+/// Raw `XDG_CURRENT_DESKTOP` (falling back to `DESKTOP_SESSION`) — the
+/// string shown next to the detected family in UI messages.
+pub fn desktop_env_raw() -> String {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .or_else(|_| std::env::var("DESKTOP_SESSION"))
+        .unwrap_or_default()
+}
+
 /// Detect the desktop from the environment (old `whoami::desktop_env()`
 /// behaviour, but table-driven).
+///
+/// The *operating system* decides first (GOAL §11 B1): Windows and macOS
+/// never look at `XDG_CURRENT_DESKTOP` — that variable is a Linux/X11 thing
+/// and reading it would classify a Windows box as "unknown" instead of
+/// using its real backend.
+#[cfg(windows)]
 pub fn detect_desktop() -> Desktop {
-    let raw = std::env::var("XDG_CURRENT_DESKTOP")
-        .or_else(|_| std::env::var("DESKTOP_SESSION"))
-        .unwrap_or_default();
-    classify_desktop(&raw)
+    Desktop::Windows
+}
+
+/// macOS: `networksetup` backend, no XDG probing (GOAL §11 B3/D11).
+#[cfg(target_os = "macos")]
+pub fn detect_desktop() -> Desktop {
+    Desktop::Macos
+}
+
+/// Linux and the other Unixes: classify `XDG_CURRENT_DESKTOP`
+/// (falling back to `DESKTOP_SESSION`).
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn detect_desktop() -> Desktop {
+    classify_desktop(&desktop_env_raw())
 }
 
 /// *How* the system proxy should be switched on (user choice in the GUI).
@@ -151,6 +269,12 @@ impl SysProxy {
         }
     }
 
+    /// The desktop this instance was built for — the UI reads it to name
+    /// the backend (GNOME / KDE) or to disable the desktop strategy.
+    pub fn desktop(&self) -> &Desktop {
+        &self.desktop
+    }
+
     /// Where the env-var backend should write (tests only).
     #[cfg(test)]
     pub fn with_env_rc(mut self, path: std::path::PathBuf) -> Self {
@@ -177,7 +301,10 @@ impl SysProxy {
     /// Write the system proxy for a local SOCKS5 on `port`, using the
     /// strategy the user picked (`pref`).
     pub fn enable(&self, port: u16, pref: SysProxyPref) -> AppResult<EnableOutcome> {
-        if pref == SysProxyPref::EnvVar {
+        // `EnvVar` only exists where a shell-rc strategy does (decision D14:
+        // Windows has none — the UI greys that row out and pins the pref to
+        // Desktop, this is the backstop if a stale pref still says EnvVar).
+        if pref == SysProxyPref::EnvVar && self.desktop.env_supported() {
             return env::enable(self, port).map(EnableOutcome::Applied);
         }
         match self.desktop {
@@ -186,6 +313,8 @@ impl SysProxy {
             }),
             Desktop::Kde => kde::enable(self, port).map(EnableOutcome::Applied),
             Desktop::Gnome => gnome::enable(self, port).map(EnableOutcome::Applied),
+            Desktop::Windows => windows::enable(self, port).map(EnableOutcome::Applied),
+            Desktop::Macos => macos::enable(self, port).map(EnableOutcome::Applied),
         }
     }
 
@@ -195,6 +324,8 @@ impl SysProxy {
             "kde" => kde::restore(self, snap),
             "gnome" => gnome::restore(self, snap),
             "env" => env::restore(self, snap),
+            "windows" => windows::restore(self, snap),
+            "macos" => macos::restore(self, snap),
             other => Err(AppError::SysProxy(format!("unknown backend {other:?}"))),
         }
     }
@@ -284,6 +415,9 @@ mod tests {
         SysProxy::with_runner(Desktop::Kde, Arc::new(mock.clone()))
     }
 
+    /// Env-table detection is a Linux/Unix thing — on Windows/macOS
+    /// `detect_desktop()` is decided by the OS (GOAL §11 B1).
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn detect_desktop_from_env_table() {
         // `detect_desktop()` must classify whatever the real process env says
@@ -476,6 +610,21 @@ mod tests {
         assert_eq!(after[2], "gsettings set org.gnome.system.proxy mode 'none'");
     }
 
+    /// The family helpers the UI reads: supported flag, message label and
+    /// the display name (raw `XDG_CURRENT_DESKTOP` on a supported family).
+    #[test]
+    fn desktop_family_helpers_feed_the_chooser_wording() {
+        assert!(Desktop::Kde.is_supported());
+        assert!(Desktop::Gnome.is_supported());
+        assert!(!Desktop::Unsupported("XFCE".into()).is_supported());
+        assert_eq!(Desktop::Kde.label(), "KDE");
+        assert_eq!(Desktop::Gnome.label(), "GNOME");
+        assert_eq!(Desktop::Unsupported("XFCE".into()).label(), "XFCE");
+        // An unsupported desktop keeps its own raw string whatever the
+        // environment says — that is the name shown to the user.
+        assert_eq!(Desktop::Unsupported("sway".into()).display_name(), "sway");
+    }
+
     #[test]
     fn unsupported_desktop_writes_nothing() {
         let mock = Mock::new();
@@ -644,6 +793,31 @@ mod tests {
         assert!(
             !calls[..after].iter().any(|c| c.ends_with("mode 'manual'")),
             "mode must be written last: {calls:?}"
+        );
+    }
+
+    /// Decision D14: Windows has no shell-rc strategy. Even if a stale
+    /// preference still says `EnvVar` (written by an older version, or
+    /// moved across machines), `enable` must fall through to the registry
+    /// backend and must not touch any rc file.
+    #[test]
+    fn windows_ignores_a_stale_envvar_pref_and_uses_the_registry() {
+        let rc = std::env::temp_dir().join("ssr-client-gtk-stale-envrc-test");
+        let _ = std::fs::remove_file(&rc);
+        let mock = Mock::new();
+        let sp =
+            SysProxy::with_runner(Desktop::Windows, Arc::new(mock.clone())).with_env_rc(rc.clone());
+
+        let outcome = sp.enable(1082, SysProxyPref::EnvVar).expect("enable");
+        let EnableOutcome::Applied(snap) = outcome else {
+            panic!("the registry backend must take over, got {outcome:?}");
+        };
+        assert_eq!(snap.backend, "windows", "D14: no env/rc path on Windows");
+        assert!(!rc.exists(), "no rc file may be written on Windows");
+        assert!(
+            mock.calls().iter().any(|c| c.starts_with("reg add")),
+            "the WinINET path must have run: {:?}",
+            mock.calls()
         );
     }
 }

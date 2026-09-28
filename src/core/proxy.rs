@@ -294,7 +294,12 @@ mod tests {
     use super::*;
     use crate::config::model::{ClientSettings, ShadowsocksConfig};
     use crate::routing::RouteMode;
+    // Only `self_listen_tcp_ports()` uses these, and that fn is
+    // `#[cfg(unix)]` — unqualified here they would be unused imports on
+    // Windows, failing the scripts' `-D warnings` gate.
+    #[cfg(unix)]
     use std::collections::HashSet;
+    #[cfg(unix)]
     use std::fs;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, TcpListener, TcpStream};
@@ -302,16 +307,31 @@ mod tests {
 
     /// Tests count process-wide listeners, and several of them run proxies
     /// at once — so every proxy test takes this lock (they are all fast).
-    static SERIAL: Mutex<()> = Mutex::new(());
-
+    /// The real lock lives in `core::test_sync`, shared with the
+    /// `http_proxy` tests so the two suites can't race for a port.
     fn serial() -> MutexGuard<'static, ()> {
-        SERIAL.lock().unwrap_or_else(|p| p.into_inner())
+        crate::core::test_sync::port_lock()
     }
 
-    /// A local port nothing is listening on right now.
+    /// A local port nothing is listening on right now (see
+    /// `core::test_sync::free_port` for why it is not `bind(:0)`).
     fn free_port() -> u16 {
-        let sock = TcpListener::bind(("0.0.0.0", 0)).expect("bind ephemeral");
-        sock.local_addr().unwrap().port()
+        crate::core::test_sync::free_port()
+    }
+
+    /// `self_listen_tcp_ports()` filtered to `core::test_sync`'s pool.
+    ///
+    /// Set-diff assertions over the *whole* process race with any suite
+    /// that binds an ephemeral port in a parallel test thread (socks5
+    /// does `bind(("127.0.0.1", 0))`); nothing outside this pool can be
+    /// opened by another test — the pool is only ever handed out under
+    /// `port_lock()`.
+    #[cfg(unix)]
+    fn pool_listen_tcp_ports() -> HashSet<u16> {
+        self_listen_tcp_ports()
+            .into_iter()
+            .filter(|p| (20_000..30_000).contains(p))
+            .collect()
     }
 
     fn cfg_on(port: u16) -> ShadowsocksConfig {
@@ -346,6 +366,9 @@ mod tests {
 
     /// Local ports of *listening* TCP sockets (state 0A) owned by this
     /// process — derived from /proc so no external tools are needed.
+    /// Unix-only (`/proc`); the cross-platform assertion lives in
+    /// `single_port_probe_and_handshake_without_proc` (GOAL §11 A5).
+    #[cfg(unix)]
     fn self_listen_tcp_ports() -> HashSet<u16> {
         let mut ours: HashSet<String> = HashSet::new();
         if let Ok(fds) = fs::read_dir("/proc/self/fd") {
@@ -463,7 +486,14 @@ mod tests {
                 port
             })
         );
+        // Unix: prove through /proc that *we* own the listener; everywhere,
+        // prove the port refuses a second bind (GOAL §11 A5).
+        #[cfg(unix)]
         assert!(self_listen_tcp_ports().contains(&port));
+        assert!(
+            TcpListener::bind(("0.0.0.0", port)).is_err(),
+            "running proxy must hold the port"
+        );
 
         // GOAL 2.4: SOCKS5 method negotiation answered by the listener.
         let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to local SOCKS5");
@@ -482,6 +512,7 @@ mod tests {
 
         // Port is free again — disable() only returns once it really is.
         drop(TcpListener::bind(("0.0.0.0", port)).expect("port must be reusable"));
+        #[cfg(unix)]
         assert!(!self_listen_tcp_ports().contains(&port));
 
         // Events: exactly one Started and exactly one clean Stopped.
@@ -533,19 +564,23 @@ mod tests {
         assert_eq!(holder.local_addr().unwrap().port(), port);
     }
 
+    /// GOAL 2.5 / §6 N1: single exposed port — exact listener accounting
+    /// needs `/proc`, so this variant is Unix-only; the cross-platform
+    /// sibling is `single_port_probe_and_handshake_without_proc`.
+    #[cfg(unix)]
     #[test]
     fn exactly_one_tcp_listener_while_running() {
         // GOAL 2.5 / §6 N1: single exposed port.
         let _g = serial();
         let (svc, _rx) = service();
-        let before = self_listen_tcp_ports();
+        let before = pool_listen_tcp_ports();
         let port = free_port();
         assert!(!before.contains(&port));
         svc.enable("single", &cfg_on(port), &routing(RouteMode::Global))
             .unwrap();
-        let during = self_listen_tcp_ports();
+        let during = pool_listen_tcp_ports();
         svc.disable().unwrap();
-        let after = self_listen_tcp_ports();
+        let after = pool_listen_tcp_ports();
 
         let mut expected = before.clone();
         expected.insert(port);
@@ -557,7 +592,8 @@ mod tests {
     fn invalid_method_fails_with_real_reason_and_no_listener_left() {
         let _g = serial();
         let (svc, _rx) = service();
-        let before = self_listen_tcp_ports();
+        #[cfg(unix)]
+        let before = pool_listen_tcp_ports();
         let port = free_port();
         let mut cfg = cfg_on(port);
         cfg.method = "no-such-cipher".into();
@@ -571,12 +607,41 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
         assert!(svc.status().is_none());
+        #[cfg(unix)]
         assert_eq!(
-            self_listen_tcp_ports(),
+            pool_listen_tcp_ports(),
             before,
             "failed enable must leave no listener behind"
         );
         drop(TcpListener::bind(("0.0.0.0", port)).expect("port must stay free"));
+    }
+
+    /// Cross-platform single-port assertion (GOAL §11 A5 / Phase 8.1): no
+    /// `/proc` — while running the port refuses a second bind and answers
+    /// the SOCKS5 greeting; after disable the bind succeeds again. On Linux
+    /// it runs beside the `/proc` variants as a cross-check.
+    #[test]
+    fn single_port_probe_and_handshake_without_proc() {
+        let _g = serial();
+        let (svc, _rx) = service();
+        let port = free_port();
+        svc.enable("probe", &cfg_on(port), &routing(RouteMode::Global))
+            .expect("enable");
+        assert!(
+            TcpListener::bind(("0.0.0.0", port)).is_err(),
+            "running proxy must hold the port"
+        );
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream.write_all(&[0x05, 0x01, 0x00]).unwrap();
+        let mut reply = [0u8; 2];
+        stream.read_exact(&mut reply).unwrap();
+        assert_eq!(reply, [0x05, 0x00], "SOCKS5 greeting not accepted");
+        drop(stream);
+        svc.disable().expect("disable");
+        drop(TcpListener::bind(("0.0.0.0", port)).expect("port free again after disable"));
     }
 
     #[test]
@@ -613,6 +678,10 @@ mod tests {
         svc.disable().unwrap();
     }
 
+    /// The port pre-check binds+drops; after a failed enable the only
+    /// listener left on that port must be the foreign owner's. Counting
+    /// listeners needs `/proc`, so this one is Unix-only.
+    #[cfg(unix)]
     #[test]
     fn probe_socket_does_not_leak_as_listener() {
         // The port pre-check binds+drops; after a failed enable the only
@@ -639,7 +708,8 @@ mod tests {
     fn invalid_routing_fails_before_binding_anything() {
         let _g = serial();
         let (svc, _rx) = service();
-        let before = self_listen_tcp_ports();
+        #[cfg(unix)]
+        let before = pool_listen_tcp_ports();
         let port = free_port();
         let bad = RoutingSettings {
             mode: RouteMode::Acl,
@@ -647,7 +717,9 @@ mod tests {
         };
         let err = svc.enable("acl", &cfg_on(port), &bad).unwrap_err();
         assert!(matches!(err, AppError::Acl(_)), "{err:?}");
-        assert_eq!(self_listen_tcp_ports(), before, "nothing may be bound");
+        #[cfg(unix)]
+        assert_eq!(pool_listen_tcp_ports(), before, "nothing may be bound");
+        drop(TcpListener::bind(("0.0.0.0", port)).expect("port still free after Acl error"));
 
         let bad_dns = RoutingSettings {
             dns: crate::routing::dns::DnsConfig::Custom(Vec::new()),
@@ -655,7 +727,9 @@ mod tests {
         };
         let err = svc.enable("dns", &cfg_on(port), &bad_dns).unwrap_err();
         assert!(matches!(err, AppError::Dns(_)), "{err:?}");
-        assert_eq!(self_listen_tcp_ports(), before, "nothing may be bound");
+        #[cfg(unix)]
+        assert_eq!(pool_listen_tcp_ports(), before, "nothing may be bound");
+        drop(TcpListener::bind(("0.0.0.0", port)).expect("port still free after Dns error"));
     }
 
     #[test]

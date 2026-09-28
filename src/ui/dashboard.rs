@@ -14,7 +14,7 @@ use crate::error::AppError;
 use crate::i18n::{Strings, error_text, fill};
 use crate::routing::RouteMode;
 use crate::routing::dns::DnsConfig;
-use crate::sysproxy::{EnableOutcome, SysProxyPref, snapshot::Snapshot};
+use crate::sysproxy::{Desktop, EnableOutcome, SysProxyPref, snapshot::Snapshot};
 use crate::ui::toast::toast;
 use crate::ui::window::Ui;
 
@@ -75,14 +75,86 @@ const DNS_IDX_ALI: u32 = 2;
 const DNS_IDX_TENCENT: u32 = 3;
 
 /// Index order matches [`SysProxyPref`]: desktop first, env vars second.
-fn sysproxy_items(s: &Strings) -> Vec<&'static str> {
-    vec![s.sysproxy_desktop, s.sysproxy_env]
+/// The desktop row names the backend this desktop actually writes — or
+/// says it is unsupported (greyed out by [`sysproxy_factory`]).
+fn sysproxy_items(s: &Strings, desktop: &Desktop) -> Vec<&'static str> {
+    // Windows has no env-var strategy (decision D14) — say so right in
+    // the row instead of offering an option that can only fail.
+    let env = if desktop.env_supported() {
+        s.sysproxy_env
+    } else {
+        s.sysproxy_env_unsupported
+    };
+    vec![sysproxy_desktop_item(s, desktop), env]
+}
+
+/// What the "desktop settings" row reads for `desktop`.
+fn sysproxy_desktop_item(s: &Strings, desktop: &Desktop) -> &'static str {
+    match desktop {
+        Desktop::Unsupported(_) => s.sysproxy_desktop_unsupported,
+        Desktop::Kde => s.sysproxy_desktop_kde,
+        Desktop::Gnome => s.sysproxy_desktop_gnome,
+        // Windows / macOS backends (GOAL §11): the OS's own proxy settings.
+        _ => s.sysproxy_desktop_native,
+    }
+}
+
+/// Row factory for the system-proxy chooser. `GtkDropDown` has no
+/// per-row sensitivity of its own, so the row that cannot be honoured on
+/// this machine is greyed out here (`sensitive` + not
+/// activatable/selectable): row 0 when the desktop has no backend at all,
+/// row 1 (env vars) on Windows, which is desktop-proxy only (D14).
+fn sysproxy_factory(desktop: &Desktop) -> gtk::SignalListItemFactory {
+    let blocked_row: Option<u32> = if !desktop.is_supported() {
+        Some(0)
+    } else if !desktop.env_supported() {
+        Some(1)
+    } else {
+        None
+    };
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(|_, obj| {
+        let list_item = obj.downcast_ref::<gtk::ListItem>().expect("GtkListItem");
+        // No ellipsize: the row must spell out the whole backend name
+        // ("桌面设置（不支持）"), so the popup widens to the label's
+        // natural width instead of cutting the message off.
+        let label = gtk::Label::new(None);
+        label.set_xalign(0.0);
+        list_item.set_child(Some(&label));
+    });
+    factory.connect_bind(move |_, obj| {
+        let Some(list_item) = obj.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(label) = list_item
+            .child()
+            .and_then(|c| c.downcast::<gtk::Label>().ok())
+        else {
+            return;
+        };
+        let Some(item) = list_item
+            .item()
+            .and_then(|o| o.downcast::<gtk::StringObject>().ok())
+        else {
+            return;
+        };
+        label.set_label(&item.string());
+        // `position` is GTK_INVALID_LIST_POSITION while unbound, which
+        // never equals the blocked row — an unbound row stays enabled.
+        let position = list_item.property::<u32>("position");
+        let enabled = blocked_row != Some(position);
+        label.set_sensitive(enabled);
+        list_item.set_activatable(enabled);
+        list_item.set_selectable(enabled);
+    });
+    factory
 }
 
 impl DashUi {
     /// Load `dashboard.ui` and build the two routing dropdowns (they are
-    /// created in code because their items are translated).
-    pub fn new(builder: Builder, s: &'static Strings) -> Self {
+    /// created in code because their items are translated). `desktop`
+    /// names the system-proxy backend this machine will use.
+    pub fn new(builder: Builder, s: &'static Strings, desktop: &Desktop) -> Self {
         let l = |id: &str| builder.object::<gtk::Label>(id).expect(id);
         let holder = |id: &str| builder.object::<gtk::Box>(id).expect(id);
 
@@ -92,9 +164,13 @@ impl DashUi {
         let dns_model = gtk::StringList::new(&dns_mode_items(s));
         let dns_mode = gtk::DropDown::new(Some(dns_model.clone()), None::<&gtk::Expression>);
         holder("dns_mode_holder").append(&dns_mode);
-        let sysproxy_model = gtk::StringList::new(&sysproxy_items(s));
+        let sysproxy_model = gtk::StringList::new(&sysproxy_items(s, desktop));
         let sysproxy_mode =
             gtk::DropDown::new(Some(sysproxy_model.clone()), None::<&gtk::Expression>);
+        // Popup rows only: the closed button keeps GTK's default label
+        // factory (it never shows the greyed desktop row — the stored
+        // choice is forced to "env vars" on an unsupported desktop).
+        sysproxy_mode.set_list_factory(Some(&sysproxy_factory(desktop)));
         holder("sysproxy_mode_holder").append(&sysproxy_mode);
 
         Self {
@@ -442,25 +518,66 @@ fn apply_dns(ui: &Rc<Ui>, state: &Rc<AppState>, next: DnsConfig, rewrite_text: b
     }
 }
 
+/// Caption under the chooser: what the current choice actually writes —
+/// naming the desktop family behind the desktop strategy, and why that
+/// row is disabled when the desktop has no backend at all.
+fn sysproxy_hint(s: &Strings, desktop: &Desktop, pref: SysProxyPref) -> String {
+    let name = desktop.display_name();
+    let desktop_note = match desktop {
+        Desktop::Unsupported(_) => fill(s.sysproxy_unsupported_hint, &[("desktop", &name)]),
+        Desktop::Kde => fill(s.sysproxy_kde_hint, &[("desktop", &name)]),
+        Desktop::Gnome => fill(s.sysproxy_gnome_hint, &[("desktop", &name)]),
+        // Windows / macOS backends (GOAL §11).
+        _ => fill(s.sysproxy_native_hint, &[("desktop", &name)]),
+    };
+    if pref == SysProxyPref::Desktop {
+        return desktop_note;
+    }
+    // Windows runs the desktop strategy only (D14): never describe the
+    // env-var path there, whatever the stored pref says.
+    if !desktop.env_supported() {
+        return desktop_note;
+    }
+    let env = match crate::sysproxy::env::detect() {
+        Ok(shell) => fill(
+            s.sysproxy_env_hint,
+            &[("rc", &shell.rc_path().display().to_string())],
+        ),
+        Err(_) => s.sysproxy_env_unknown.to_string(),
+    };
+    // The desktop row is greyed out here: keep saying so next to the
+    // env-var explanation instead of hiding the reason.
+    if desktop.is_supported() {
+        env
+    } else {
+        format!("{desktop_note} {env}")
+    }
+}
+
 /// Sync the system-proxy chooser and its caption with the stored choice.
 pub fn refresh_sysproxy_pref(ui: &Ui, state: &AppState) {
-    let pref = state.sysproxy_pref.get();
     let s = state.strings();
+    let desktop = state.sys.desktop();
+    // A desktop with no proxy backend can never be chosen: pin the stored
+    // choice to the env-var strategy so the selector and the config agree.
+    if !desktop.is_supported() && state.sysproxy_pref.get() == SysProxyPref::Desktop {
+        state.sysproxy_pref.set(SysProxyPref::EnvVar);
+        state.save_sysproxy_pref();
+    }
+    // …and the mirror case: Windows is desktop-proxy only (D14), so a
+    // stored env-var choice is pinned back to the desktop strategy.
+    if !desktop.env_supported() && state.sysproxy_pref.get() == SysProxyPref::EnvVar {
+        state.sysproxy_pref.set(SysProxyPref::Desktop);
+        state.save_sysproxy_pref();
+    }
+    let pref = state.sysproxy_pref.get();
     let idx = u32::from(pref == SysProxyPref::EnvVar);
     if ui.dash.sysproxy_mode.selected() != idx {
         ui.dash.sysproxy_mode.set_selected(idx);
     }
-    let hint = match pref {
-        SysProxyPref::Desktop => s.sysproxy_desktop_hint.to_string(),
-        SysProxyPref::EnvVar => match crate::sysproxy::env::detect() {
-            Ok(shell) => fill(
-                s.sysproxy_env_hint,
-                &[("rc", &shell.rc_path().display().to_string())],
-            ),
-            Err(_) => s.sysproxy_env_unknown.to_string(),
-        },
-    };
-    ui.dash.sysproxy_hint.set_label(&hint);
+    ui.dash
+        .sysproxy_hint
+        .set_label(&sysproxy_hint(s, desktop, pref));
 }
 
 /// Re-translate the routing card after a language switch. The dropdown
@@ -478,7 +595,7 @@ pub fn rebuild_routing_text(ui: &Ui, state: &AppState) {
     ui.dash
         .entry_dns
         .set_placeholder_text(Some(s.dns_servers_placeholder));
-    let modes = sysproxy_items(s);
+    let modes = sysproxy_items(s, state.sys.desktop());
     ui.dash
         .sysproxy_model
         .splice(0, ui.dash.sysproxy_model.n_items(), &modes);
@@ -626,6 +743,28 @@ pub fn wire_routing(ui: &Rc<Ui>, state: &Rc<AppState>) {
         let state = state.clone();
         let dd = ui.dash.sysproxy_mode.clone();
         dd.connect_notify_local(Some("selected"), move |dd, _| {
+            let desktop = state.sys.desktop().clone();
+            if !desktop.env_supported() && dd.selected() == 1 {
+                // Windows: the env-var row is greyed out and refused
+                // (D14) — snap back to the desktop strategy silently.
+                dd.set_selected(0);
+                return;
+            }
+            if !desktop.is_supported() {
+                // The row is greyed out and refused: snap back to env
+                // vars and say why (never leave a choice the enable
+                // flow cannot honour).
+                if dd.selected() == 0 {
+                    let name = desktop.display_name();
+                    let msg = fill(
+                        state.strings().sysproxy_unsupported_toast,
+                        &[("desktop", &name)],
+                    );
+                    toast(&ui.toast_overlay, &msg);
+                    dd.set_selected(1);
+                }
+                return;
+            }
             let pref = if dd.selected() == 1 {
                 SysProxyPref::EnvVar
             } else {
@@ -659,5 +798,94 @@ pub fn wire_routing(ui: &Rc<Ui>, state: &Rc<AppState>) {
             let _ = btn;
             pick_acl_file(&ui, &state);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::{EN, ZH};
+
+    /// The desktop row must name the backend this desktop actually
+    /// writes, in both languages — never a generic "桌面设置".
+    #[test]
+    fn desktop_row_names_the_detected_backend() {
+        for s in [&ZH, &EN] {
+            assert_eq!(
+                sysproxy_desktop_item(s, &Desktop::Gnome),
+                s.sysproxy_desktop_gnome
+            );
+            assert_eq!(
+                sysproxy_desktop_item(s, &Desktop::Kde),
+                s.sysproxy_desktop_kde
+            );
+            assert_eq!(
+                sysproxy_desktop_item(s, &Desktop::Unsupported("XFCE".into())),
+                s.sysproxy_desktop_unsupported
+            );
+            // Index order is the chooser's contract: desktop first.
+            let items = sysproxy_items(s, &Desktop::Gnome);
+            assert_eq!(items, vec![s.sysproxy_desktop_gnome, s.sysproxy_env]);
+        }
+    }
+
+    /// The caption names the family, and an unsupported desktop keeps
+    /// its "disabled" sentence even while env vars are selected.
+    #[test]
+    fn hint_names_the_family_and_explains_a_disabled_row() {
+        for s in [&ZH, &EN] {
+            let gnome = sysproxy_hint(s, &Desktop::Gnome, SysProxyPref::Desktop);
+            assert!(gnome.contains("GNOME"), "{gnome}");
+            let kde = sysproxy_hint(s, &Desktop::Kde, SysProxyPref::Desktop);
+            assert!(kde.contains("KDE"), "{kde}");
+
+            let off = Desktop::Unsupported("XFCE".into());
+            let note = sysproxy_hint(s, &off, SysProxyPref::Desktop);
+            assert!(note.contains("XFCE"), "{note}");
+            // Env-var selection appends the rc explanation instead of
+            // hiding why the desktop row is greyed out.
+            let env = sysproxy_hint(s, &off, SysProxyPref::EnvVar);
+            assert!(env.starts_with(&note) && env.len() > note.len(), "{env}");
+        }
+    }
+
+    /// Windows runs the desktop strategy **only** (decision D14): its
+    /// env-var row reads "unsupported", it is that row (not the desktop
+    /// one) the factory greys out, and the caption never talks about
+    /// shell rc files — macOS / Linux keep both strategies.
+    #[test]
+    fn windows_is_desktop_only_and_says_so() {
+        for s in [&ZH, &EN] {
+            assert!(!Desktop::Windows.env_supported());
+            assert!(Desktop::Macos.env_supported());
+            assert!(Desktop::Gnome.env_supported());
+            assert!(Desktop::Kde.env_supported());
+            // An unsupported *desktop* still has the env-var strategy —
+            // that is exactly what it falls back to.
+            assert!(Desktop::Unsupported("XFCE".into()).env_supported());
+
+            let items = sysproxy_items(s, &Desktop::Windows);
+            assert_eq!(
+                items,
+                vec![s.sysproxy_desktop_native, s.sysproxy_env_unsupported],
+                "Windows must offer the OS strategy and an 'unsupported' env row"
+            );
+            // Linux/macOS keep the ordinary env label.
+            assert_eq!(
+                sysproxy_items(s, &Desktop::Macos),
+                vec![s.sysproxy_desktop_native, s.sysproxy_env]
+            );
+
+            // Whatever the stored pref says, the caption stays on the OS
+            // strategy and never mentions a shell rc file.
+            for pref in [SysProxyPref::Desktop, SysProxyPref::EnvVar] {
+                let hint = sysproxy_hint(s, &Desktop::Windows, pref);
+                assert!(hint.contains("Windows"), "{hint}");
+                assert!(
+                    !hint.contains("bash") && !hint.contains(".zshrc") && !hint.contains("shell"),
+                    "Windows must not advertise the env-var path: {hint}"
+                );
+            }
+        }
     }
 }

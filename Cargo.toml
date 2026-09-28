@@ -11,7 +11,6 @@ keywords = ["shadowsocksr", "proxy", "gtk", "libadwaita", "linux"]
 categories = ["gui", "network-programming"]
 
 [dependencies]
-libc = "0.2"
 gtk = { package = "gtk4", version = "0.11", features = ["v4_18"] }
 libadwaita = { version = "0.9", features = ["v1_5", "gtk_v4_18"] }
 glib = "0.22"
@@ -27,6 +26,17 @@ hickory-resolver = "0.26"
 
 [dev-dependencies]
 tempfile = "3"
+
+# ---- platform-specific (Phase 8.1, GOAL §11) ---------------------------
+# `libc` is only touched by Unix-only code (sigaction, setlocale LC_MESSAGES);
+# on Windows those symbols do not exist, so the dependency itself is target
+# gated. Windows needs `windows-sys` for the console ctrl handler that plays
+# the role of the signal handlers (exit cleanup path).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console", "Win32_Globalization"] }
 
 [profile.release]
 opt-level = 3

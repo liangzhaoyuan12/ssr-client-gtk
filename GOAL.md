@@ -10,7 +10,9 @@
 
 ## 0. 一句话目标
 
-把 `ARCHITECTURE.md` 描述的 Tauri + WebView + sidecar 应用，用 **GTK 4.18 + libadwaita 1.7**（gtk4-rs 0.11 / libadwaita-rs 0.9 对应 feature）重写为**纯 Rust 原生桌面应用**，代理转发不再依赖外部 `ssr-native-client` sidecar，改为**进程内链接 `ssr-client-rs` crate**；对外**只暴露一个端口**（经 SSR 协议链路处理后的那个）；**中英双语**；最终产出经过完整测试、**可直接打包发布（Arch + deb + rpm + tar.gz）**的 Linux 桌面软件。
+把 `ARCHITECTURE.md` 描述的 Tauri + WebView + sidecar 应用，用 **GTK 4.18 + libadwaita 1.5**（gtk4-rs 0.11 / libadwaita-rs 0.9 对应 feature，与目标系统 Deepin 25 的 4.18.6 / 1.5.0 对齐）重写为**纯 Rust 原生桌面应用**，代理转发不再依赖外部 `ssr-native-client` sidecar，改为**进程内链接 `ssr-client-rs` crate**；对外**只暴露一个端口**（经 SSR 协议链路处理后的那个）；**中英双语**；最终产出经过完整测试、**可直接打包发布**的桌面软件。
+
+**目标平台（2026-09-27 起）**：**Linux + Windows + macOS** 三平台同一份源码（2026-09-27 前为 Linux-only）；Linux 已交付四件套（Arch + deb + rpm + tar.gz）保持零回归，Win/mac 的改造计划、扫描清单与阶段见 **§11**。
 
 ---
 
@@ -303,7 +305,7 @@ GTK 主线程更新 UI（状态点、Toast）
 - [x] 5.3 停用 → 监听消失、系统代理还原为启用前的值
 - [x] 5.4 运行中直接关窗 → 进程内代理停止、系统代理还原、无残留监听（`ss -tln` 复核）
 - [x] 5.5 与旧版共存：1080/1081 仍被旧程序占用时，新应用用别的端口正常工作，且**自身不再制造第二个口**
-      验证（实测，全部真机输出）：启用期间 `ss -tlnp | grep :1082` → `LISTEN 0.0.0.0:1082 users:("ssr-client-gtk",pid=…,fd=16)`；`ss -tlnp | grep pid=<app>` 计数 → **1**；`curl --socks5-hostname 127.0.0.1:1082 …generate_204` → **204**（两次）；`kreadconfig5 … ProxyType` → **1**、`socksProxy` → **127.0.0.1 1082**；停用/关窗后 1082 消失、`socksProxy` → **127.0.0.1 1080**（精确回启用前基线，基线本身是旧程序设的）、快照文件删除、关窗后进程退出；5.5 启用期间 `1080(旧)/1081(旧 sidecar)/1082(我们)` 三口共存且本应用恰 1 口；逐条原始输出见 §11 Phase 5 进度行
+      验证（实测，全部真机输出）：启用期间 `ss -tlnp | grep :1082` → `LISTEN 0.0.0.0:1082 users:("ssr-client-gtk",pid=…,fd=16)`；`ss -tlnp | grep pid=<app>` 计数 → **1**；`curl --socks5-hostname 127.0.0.1:1082 …generate_204` → **204**（两次）；`kreadconfig5 … ProxyType` → **1**、`socksProxy` → `127.0.0.1 1082`；停用/关窗后 1082 消失、`socksProxy` → `127.0.0.1 1080`（精确回启用前基线，基线本身是旧程序设的）、快照文件删除、关窗后进程退出；5.5 启用期间 `1080(旧)/1081(旧 sidecar)/1082(我们)` 三口共存、本应用恰 1 口；逐条原始输出见 §12 Phase 5 进度行
 
 ### Phase 6 — 发布门禁（全绿 = 成品可发布）
 
@@ -337,7 +339,7 @@ GTK 主线程更新 UI（状态点、Toast）
 - [x] 7.1 路由模块 `src/routing/{cidr,dns,acl,mod}.rs` + vendored `src/routing/china_cidrs.txt`（IPv4 **6206** 行 + IPv6 **3410** 行，源自 `gaoyifan/china-operator-ip` commit `75f2eb0…`，MIT，文件头含许可全文与两段 sha256）
       验证（实测）：`cargo test cidr::` → **6 passed / 0 failed**（含 `china_set_is_non_empty_and_sane`：`223.5.5.5`/`114.114.114.114`/`1.2.4.0` 与 v6 `2400:3200::1`/`2408:8000::1`/`240e::1` 命中，`8.8.8.8`/`1.1.1.1`/私网 与 v6 `2001:4860:4860::8888`/`2606:4700:4700::1111`/`fe80::1` 不命中）；`awk '!/^#/ && /:/' china_cidrs.txt | wc -l` → **3410**、`awk '!/^#/ && !/:/'` → **6206**
 - [x] 7.2 唯一 SOCKS5 入口分流 `src/core/socks5.rs` + `src/core/proxy.rs`：监听口数仍为 1（TCP accept → `Router::decide` → Direct / 经 SSR；UDP ASSOCIATE 跟 profile 的 `udp` 开关，不参与分流），启用前先 `Router::build` 校验 ACL/DNS，坏文件在绑定前报错
-      验证（实测）：真机 e2e 两批（见 §11）——全局模式出口 IP `206.237.10.116`；启用期间本进程监听口 `== 1`
+      验证（实测）：真机 e2e 两批（见 §12）——全局模式出口 IP `206.237.10.116`；启用期间本进程监听口 `== 1`
 - [x] 7.3 DNS 二选一（系统 DNS / 自定义，`hickory-resolver` 本地解析，只服务本地路由判定与直连解析）
       验证（实测）：`cargo test routing::` → **30 passed / 0 failed / 1 ignored**；真机对照 `bypass-cn` + 黑洞自定义 DNS `192.0.2.1` → `204` 但 `time_total=15.34s`（2×5s 超时），同模式系统 DNS → `204` / `0.072s`（差 200 倍，证明自定义解析器确实被查）
 - [x] 7.4 UI 卡片「路由、DNS 与系统代理」（`ui/dashboard.ui` + `src/ui/dashboard.rs` + `src/i18n.rs`）：五个路由模式下拉、ACL 文件选择、DNS 二选一、系统代理方式二选一，改任何一项都提示"重新启用生效"
@@ -451,7 +453,139 @@ GTK 主线程更新 UI（状态点、Toast）
 
 ---
 
-## 11. 进度行
+## 11. 跨平台改造（Linux → Linux / Windows / macOS）— 2026-09-27 立项
+
+### 11.1 目标与边界
+
+- **目标**：同一份源码在 Linux / Windows 10+（x86_64）/ macOS 12+（x86_64 与 arm64）编译、运行、打包、发布；Linux 现有行为**零回归**。
+- **不改 `ssr-client-rs`**（实查：`grep -rn 'cfg(unix)|cfg(windows)|target_os|libc::|/proc/' <registry>/ssr-client-rs-0.1.0/{src,Cargo.toml}` → **0 命中**，依赖只有 tokio + aes/chacha/sha/hmac/base64/rand/serde…，三平台原生可用）。
+- **Linux = 回归基准**：Phase 8 每一步都必须 `cargo fmt --check` 绿 / `cargo clippy --all-targets -- -D warnings` **0** / `cargo test` **98 passed / 0 failed / 3 ignored** / `cargo doc --no-deps` 告警 **0**（2026-09-27 基线，含 libadwaita 降级到系统 1.5 后的全绿）。
+- **不换 GUI 栈**（§3 锁定）：GTK4 + libadwaita 三平台都有官方渠道 —— Windows 走 MSYS2 `mingw-w64-x86_64-{gtk4,libadwaita}`，macOS 走 Homebrew `gtk4 libadwaita`；gtk4-rs/libadwaita-rs 本身跨平台。
+- **验证环境（2026-09-27 你拍板）**：**三平台各有自己的主机**，本机（LoongArch Deepin）**不编译 Win/mac**（GTK 需目标平台系统库，不可交叉编译）→ 我只交付**三套分开写的打包脚本**（Linux 已有 `build.sh`，Windows / macOS 新写）+ 每套的验证命令清单，你在对应主机执行并回贴输出；本机只负责 Linux 回归与 cfg 审计。CI 矩阵（GitHub Actions）降为可选，**不是门禁**。
+
+### 11.2 全项目平台扫描清单（2026-09-27 实扫：`src/` 共 **8531** 行 Rust，`libc::` 9 处、`/proc/` 10 处、`std::os::unix` 1 处、外部桌面命令 68 处命中；file:line 为当日行号）
+
+**表 A — 编译期阻断（不改则 Windows/macOS 编不过）**
+
+| # | 位置 | 问题 | 改造方向 |
+|---|---|---|---|
+| A1 | `Cargo.toml:14` `libc = "0.2"` 无条件依赖 | Windows 的 libc crate 没有 `sigaction`/`SIGHUP`/`LC_MESSAGES` 等符号 | 移到 `[target.'cfg(unix)'.dependencies]`；新增 `[target.'cfg(windows)'.dependencies] windows-sys`（只开用到的 feature） |
+| A2 | `src/main.rs:46-68` `record_exit_signal` + `install_exit_signal_handlers`（`libc::sigaction`、`SIGHUP/SIGINT/SIGTERM/SIGQUIT`、`SA_RESTART`、`sigemptyset`） | Unix 专用 | `#[cfg(unix)]` 原样保留；`#[cfg(windows)]` 用 `SetConsoleCtrlHandler`（Ctrl-C / Ctrl-Break / 关机）写同一个 `EXIT_SIGNAL` 原子，100ms 轮询 + `window.close()` 复用不动；macOS 走 unix 分支 |
+| A3 | `src/ui/window.rs:587-601` `with_messages_locale()` 用 `libc::setlocale(LC_MESSAGES, …)` | `LC_MESSAGES` 是 POSIX 类别，Windows 无 | `#[cfg(unix)]` 原样；`#[cfg(windows)]` 按 P8.5 探针结论：GTK for Windows 的 gettext 若认 `LANGUAGE`/`LC_ALL` 就改设 env，否则跳过并接受"GTK 自带文案跟系统语言" |
+| A4 | `src/config/path.rs:26-33` `is_effective_root()` 用 `std::os::unix::fs::MetadataExt` | Windows 无 `unix` 扩展 → 编译失败 | `#[cfg(unix)]` 保留 `/proc/self` uid 判定；`#[cfg(windows)]` 返回 `false`（不做 root 分支）；macOS 用 `geteuid` 或同样 false |
+| A5 | 测试里的 Unix 假设：`src/core/proxy.rs:347-379`（`/proc/self/fd` ∩ `/proc/net/tcp`，`mod tests` 起于 293 行）、`src/sysproxy/env.rs:111-133`（`/proc/<pid>/{status,cmdline,comm}`）、`src/config/prefs.rs:81`/`src/routing/mod.rs:483`/`src/sysproxy/snapshot.rs:68`（写死 `/tmp`） | 能编译，但 Win/mac 上断言必失败 | `/proc` 读取全部 `#[cfg(unix)]`；测试路径改 `std::env::temp_dir()`；`self_listen_tcp_ports()` 另给跨平台替代（probe bind + SOCKS5 握手 `0500`，见 P8.1） |
+
+**表 B — 运行期 Linux 专属（能编译，但 Win/mac 上功能失效或降级）**
+
+| # | 位置 | 现状（Linux） | Win/mac 目标 |
+|---|---|---|---|
+| B1 | `src/sysproxy/mod.rs:59-68` `Desktop::{Kde,Gnome,Unsupported}`、`classify_desktop()` 读 `XDG_CURRENT_DESKTOP` | KDE→`kwriteconfig5`+dbus；GNOME 家族→`gsettings`；其余→手动提示 | 新增 `Desktop::Windows` / `Desktop::Macos`，按 `cfg(target_os)` 直接给（不看 XDG）；`kde.rs`/`gnome.rs`/`env.rs` 整模块 `#[cfg(unix)]`；Linux 分派与 21 passed 测试保持不变 |
+| B2 | 新增 `src/sysproxy/windows.rs` | — | **W1 桌面代理（HTTP —— Windows 无原生 SOCKS，见 B11）**：写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的 `ProxyEnable/ProxyServer/ProxyOverride`（`ProxyServer=127.0.0.1:<port>` = **HTTP 代理**、`ProxyOverride=<local>`），写后 `InternetSetOption(SETTINGS_CHANGED + REFRESH)` 广播。快照/还原复用现有 `snapshot.rs`。**已拍板 D10：`socks=` 方案作废**；~~W2 写 `HKCU\Environment`~~ **已拍板 D14 取消 —— Windows 只用桌面代理** |
+| B3 | 新增 `src/sysproxy/macos.rs` | — | **M1 桌面代理**：`networksetup -listallnetworkservices` 逐服务 `-setsocksfirewallproxy 127.0.0.1 <port>` + `-setproxybypassdomains`，读态用 `scutil --proxy` 入快照；**M2 环境变量**：复用 `env.rs` 写 `~/.zshrc` 管理块（macOS 默认 zsh）。**已拍板 D11：M1 为主、M2 为辅** |
+| B4 | `src/sysproxy/env.rs:82-133` `detect()`：`$SHELL` → 父进程链读 `/proc` → bash/zsh/fish rc | 只对新终端生效 | macOS：`$SHELL` 分支直接可用，`/proc` 分支 `cfg(unix)` 下读不到就自然退回（行为可接受，D11 的 M2 即此路）；Windows：**不提供该方式**（D14）——UI 行显示「环境变量（不支持）」并置灰，`env_supported()` 返回 false |
+| B5 | `src/notify.rs:16` `notify-send` | libnotify，失败返回 `false` 不 panic | Windows：`windows` crate 的 ToastNotification；macOS：`osascript -e 'display notification'`；三者都保持"失败→false，调用方回落 AdwToast" |
+| B6 | `src/i18n.rs:203-237` `Lang::detect()` 读 `LC_ALL/LC_MESSAGES/LANG/LANGUAGE` | gettext 语义 | macOS：POSIX env 可用（实测项）；Windows：补 `GetUserDefaultLocaleName()` / `LANG` env 兜底（`zh-CN`→zh-CN），判定仍走现有纯函数 `is_chinese()` |
+| B7 | `src/config/path.rs:8-21` `config_dir()`=`$HOME/.ssr`，`home_dir()` 只认 `HOME`，缺失退 `/tmp` | root→`/root/.ssr` | `home_dir()` 加 `USERPROFILE`（必要时 `HOMEDRIVE+HOMEPATH`）兜底；**已拍板 D12：三平台仍用 `~/.ssr`（Windows 即 `%USERPROFILE%\.ssr`）**，不搬 `%APPDATA%` / `~/Library/Application Support`，配置可整目录拷走；Linux 行为一个字节都不变 |
+| B8 | `src/sysproxy/snapshot.rs:60-72` 位置 `$XDG_CONFIG_HOME`/`~/.config/ssr-client-gtk/` | `sysproxy-snapshot.json` | 跟随 B7 的平台兜底；目录需 `create_dir_all`（Windows 上 `~/.config` 不存在） |
+| B9 | 单实例（`src/main.rs:88-99`，`GApplication` application_id） | D-Bus 单实例，二次启动 `present()` | Windows/macOS 默认无 session bus → **必须实测** `app.run()` 是否退化成多实例；退化则补文件锁单实例（config 目录 `instance.lock` + 已存在则 `present` 后退出）→ P8.7 |
+| B10 | `src/ui/window.rs:114-123` `IconTheme::add_search_path("data/icons")`、`window.set_icon_name(APP_ID)`（162 行） | 源码树直跑 + 主题图标 | macOS 窗口/Dock 图标来自 `.icns`（`set_icon_name` 无效），Windows 来自 exe 资源 `.ico`；Linux 逻辑原样不动 |
+| B11 | 唯一监听口的协议（`src/core/{socks5,proxy}.rs`） | 纯 SOCKS5（`0.0.0.0:<port>`），Linux/macOS 系统代理原生认 SOCKS | **仅 Windows 有此坑（2026-09-27 你指出）**：WinINET / 系统设置 / Chromium 系浏览器**不认 SOCKS** → 唯一监听口做**首字节嗅探**：`0x05` → 既有 SOCKS5；否则按 **HTTP 代理**解析（`CONNECT host:port` 与 `绝对 URI` 两种请求行），目标交给同一条 `Router::decide` + SSR 拨号链路，**端口数仍 = 1**。嗅探 + HTTP 前端**三平台同一份代码**（本机 Linux 就能写测试），只有 Windows 的系统代理指向 HTTP；Linux/macOS 系统代理仍写 SOCKS5，行为不变 |
+
+**表 C — 打包与资产（现状全部 Linux-only）**
+
+| # | 现状 | Windows | macOS |
+|---|---|---|---|
+| C1 | `build.sh`（bash + cargo-deb / cargo-generate-rpm / makepkg / rsync / tarball.sh） | **`build-win.ps1`（新写，PowerShell）**：MSYS2 装 `mingw-w64-x86_64-{gtk4,libadwaita}` → `cargo build --release` → `ntldd` 收拢 DLL + GTK 资源 → 生成 `.ico` → **产出绿色 `ssr-client-gtk-<ver>-windows-x86_64.zip`（只出 zip，不用 NSIS —— 2026-09-27 拍板）** | **`build-mac.sh`（新写，bash）**：`brew install gtk4 libadwaita` → `cargo build --release` → 组 `.app`（`Contents/MacOS/` + `Contents/Resources/*.dylib` 改 rpath，`dylibbundler`/`adylib`）→ ad-hoc `codesign` → **产出 `ssr-client-gtk.app`（只出 .app，不打 dmg —— 2026-09-27 拍板）** |
+| C2 | `data/*.desktop`、`data/*.metainfo.xml`、`data/icons/hicolor/**`、`icon.png` | `packaging/windows/`：由 `icon.png` 生成 `.ico`、exe 版本资源 `.rc`（无安装器脚本） | `packaging/macos/`：`Info.plist`、由 `icon.png` 生成 `.icns`（`iconutil`）、`entitlements.plist`（ad-hoc 签名可不带） |
+| C3 | `build.sh` 内断言（版本单一来源、Depends 版本下限、图标尺寸/数量、产物只在 `packaging/`） | 同思路的 Win 断言：DLL 齐全、文件名版本==`Cargo.toml` 版本 | 同思路的 mac 断言：`Info.plist` 版本==`Cargo.toml`、dylib 齐全、`.icns` 存在 |
+| C4 | 交付路径 `packaging/`（Linux 四件套） | 产物进 `packaging/windows/` | 产物进 `packaging/macos/` |
+
+> **现状缺口（2026-09-27 实查）**：本仓库**没有 `packaging/` 目录**，而 `build.sh:82` 与 `build.sh:95-96` 引用 `packaging/PKGBUILD`（缺失即 `die`），`tarball.sh`、容器冒烟脚本也不在仓库里 —— Linux 四件套脚本目前在这份源码树上跑不起来。跨平台打包（C1–C4）开工前先补齐或重建 `packaging/`（否则 Phase 8.8 的"Linux 回归 rc=0"无从验证）。
+
+**表 D — 已确认跨平台，不用动**
+
+- `ssr-client-rs` 0.1.0（见 11.1 的实查命令，0 命中）。
+- `src/routing/*`（含 vendored `china_cidrs.txt`）、`src/core/socks5.rs`、`src/core/proxy.rs` **生产代码**、`src/config/{model,store,prefs}.rs`、`src/ui/{form,list,dashboard,toast}.rs`、`ui/*.ui`、`src/app.rs`、`src/error.rs`：纯逻辑 / tokio / GTK 跨平台 API。原子写 `.part`+rename 在 Windows 由 std 用 `MOVEFILE_REPLACE_EXISTING` 覆盖，语义一致（P8.1 加断言复核）。
+- `0.0.0.0` 监听三平台同语义；**Windows 首次监听会弹防火墙授权** → 写进 README（P8.9）。
+- 单端口、路由五模式、DNS 二选一、中英双语、QA 钩子 `SSR_GTK_DEV_*`：与平台无关。
+
+### 11.3 实施阶段（编号接 §7 的 Phase 序列；命令输出真实才算完成，Win/mac 条目拿到真实输出前**不打勾**）
+
+**Phase 8.0 — 冻结基线**
+- [x] Linux 门禁基线记录：`cargo fmt --check` 绿 / `clippy --all-targets -D warnings` **0** / `cargo test` **98 passed, 0 failed, 3 ignored** / `cargo doc --no-deps` 告警 **0**（2026-09-27 实测，见 §12 进度行）
+      验证：四条原样复跑与基线一致。
+
+**Phase 8.1 — cfg 化与 target 依赖（Linux 行为零变化）**
+- [x] A1–A5 逐条：unix 代码进 `#[cfg(unix)]`；Windows 分支先给**可编译的最小实现**（信号→`SetConsoleCtrlHandler`、root→false、setlocale→跳过）；macOS 走 unix 分支。
+- [x] `Cargo.toml`：`libc` 移入 `[target.'cfg(unix)'.dependencies]`，加 `[target.'cfg(windows)'.dependencies] windows-sys`（features `Win32_Foundation` / `Win32_System_Console` / `Win32_Globalization`）。
+- [x] `/proc` 读取收敛进 `#[cfg(unix)]`（`config/path.rs`、`core/proxy.rs`、`sysproxy/env.rs`）；测试 `/tmp` 改 `env::temp_dir()`。
+      **偏离记录**：`sysproxy/{kde,gnome,env}.rs` **没有整模块挂 `#[cfg(unix)]`** —— `ui/dashboard.rs:455` 无条件调用 `sysproxy::env::detect()`，而 8.3 的 mock 单测必须在 Linux 上跑（这正是 GOAL 对 8.3 的验证要求）。改为**只按平台决定选哪个后端**：`detect_desktop()` 已按 `cfg(windows)/(target_os=macos)/unix` 分裂（8.3），模块本身三平台都编译、只在本平台被调用；`/proc` 读取已单独 cfg。
+- [x] 新增跨平台监听口断言（probe bind + SOCKS5 `0500`）：`single_port_probe_and_handshake_without_proc`，Linux 上与 `/proc` 版并存互证。
+      验证（实测）：门禁四连全绿 —— `cargo fmt --check` OK / `clippy -D warnings` **0** / `cargo test` **100 passed / 0 failed / 3 ignored**（当时）/ `cargo doc --no-deps` 告警 **0**；cfg 审计 `grep -rn 'libc::\|std::os::unix\|/proc/' src` → 24 行命中，其中 12 行是文档注释、12 行代码**全部**落在 `#[cfg(unix)]` 函数内（逐项见进度行）。
+
+**Phase 8.2 — 路径与配置目录（B7/B8，已拍板 D12）**
+- [x] `home_dir()` 三平台兜底（`HOME` → `USERPROFILE` → `HOMEDRIVE`+`HOMEPATH` → `env::temp_dir()`，抽成纯函数 `home_dir_from(get)` 便于无副作用测试）、`config_dir()`/快照目录跟随 `home_dir()`、`save_to` 既有 `create_dir_all`；**三平台配置都在 `~/.ssr`**，`sysproxy-snapshot.json` 仍在 `~/.config/ssr-client-gtk/`（Windows 由 `home_dir()` 兜底后 `create_dir_all` 造出）；Linux 断言 `~/.ssr` 与 `~/.config/ssr-client-gtk` 不变。
+      验证（实测）：新单测 `home_dir_falls_back_across_platforms`（HOME 优先 / 仅 USERPROFILE / HOMEDRIVE+HOMEPATH / 全空→temp / 空串不算命中）→ 绿；`cargo test config::` → **14 passed / 0 failed**（不减）。
+
+**Phase 8.3 — HTTP 代理前端（Windows 必需）+ 系统代理 Windows / macOS 后端（B1/B2/B3/B4/B11）**
+- [x] `Desktop::{Windows,Macos}` + `#[cfg]` 分派（`detect_desktop()` 按 OS 分裂，不再读 `XDG`）；`windows.rs`（WinINET 注册表，写 `ProxyServer=127.0.0.1:<port>` 的 **HTTP** 形态）/ `macos.rs`（`networksetup` SOCKS，逐服务快照与还原）走现有 `Runner` 注入模式，**键值与命令行全可 mock 断言**；`disable()` 按 `backend` 增加 `"windows"` / `"macos"` 分派。
+- [x] **HTTP 代理前端（B11，三平台同一份代码）**：新模块 `src/core/http_proxy.rs` + `socks5::serve` 里 `peek` 首字节嗅探 → `0x05` 走既有 SOCKS5，否则解析 HTTP `CONNECT` 与绝对 URI 两种请求行 → **回拨本机同一口的 SOCKS5**（复用同一条 `Router::decide` + SSR 拨号）→ `200 Connection Established` / 绝对 URI 改写成 origin-form 后转发；解析失败回 `400`（非代理流量不吞）；**端口数仍 = 1**（N1 不破），Linux 的 SOCKS5 路径零改动。
+- [ ] 实机探针（输出写进进度行）：① **Windows**：启用后 `curl -x http://127.0.0.1:<port> https://api.ipify.org` 与 Edge 出口 IP == 服务端 IP（证明 **HTTP 转换生效**）、系统设置显示 `127.0.0.1:<port>`，停用后还原 byte-identical；② **macOS**：`networksetup` 写入后 `scutil --proxy` 读回、还原 byte-identical。**待你在两台主机跑 `VERIFY.md` 对应段落**（本机 LoongArch 无法代跑）。
+      验证（本机实测）：HTTP 前端 6 条单测全绿 —— `parses_connect_and_absolute_forms`（CONNECT/IPv6/绝对URI/缺端口/相对URI/ftp 共 9 断言）、`forward_head_strips_proxy_headers_and_rewrites_target`、`connect_tunnel_carries_bytes_both_ways`、`absolute_uri_request_is_forwarded_in_origin_form`、`non_proxy_traffic_gets_400_and_is_not_swallowed`、`socks5_still_works_on_the_same_port_as_http`，另加 `#[ignore]` 的 `curl_x_talks_to_the_http_front_end`（真 curl 走 `-x`）→ `cargo test http_proxy -- --ignored` **1 passed**；sysproxy 新增 win/mac 各 4 条 mock 单测；`cargo test sysproxy::` 由 21 → **29 passed / 0 failed**；总 `cargo test` → **114 passed / 0 failed / 4 ignored**。
+
+**Phase 8.4 — 通知（B5）**
+- [x] `notify.rs` 拆 `#[cfg]` 三实现：Unix `notify-send`、macOS `osascript -e 'display notification'`、Windows **分离进程**的 PowerShell `NotifyIcon` 气泡（不等待，避免阻塞 GTK 主循环），失败一律 `false`（不 panic、不阻塞关窗清理）。
+      验证（本机实测）：notify 单测仍 **2 条**（`missing_binary_returns_false_without_panicking` 在 `#[cfg(not(windows))]` 下保留、`real_notify_send_never_panics` 三平台通用）→ 绿。**待实机**：Windows toast / macOS 通知各截一次（并入 VERIFY.md 的主机跑）。
+
+**Phase 8.5 — 语言与 GTK 内置文案（B6 / A3）**
+- [x] Windows 语言检测兜底（`GetUserDefaultLocaleName` → `is_chinese()`，仅在 POSIX 变量全空时生效）+ `with_messages_locale()` 的非 unix 分支（先按"跳过"实现，Windows 上 GTK 自带文案跟系统语言；探针若证明 `LANGUAGE`/`LC_ALL` 有效再升级）。
+      验证（本机实测）：`cargo test i18n::` 全绿、总测试不减；Linux 语言判定逻辑未动（原 12 用例的纯函数路径原样）。**待实机**：Windows 4 用例（系统 zh-CN / en-US / ja-JP + 已保存语言压过系统）。
+
+**Phase 8.6 — 退出清理（A2 运行期）**
+- [x] Windows：`SetConsoleCtrlHandler`（`CTRL_C/BREAK/CLOSE/SHUTDOWN` → 写同一个 `EXIT_SIGNAL` 原子 → 既有 100ms 轮询 → `window.close()` → 走既有清理链）已在 8.1 落盘；macOS 沿用 unix 信号分支。
+      验证：**待实机** —— Windows "启用代理 → Ctrl+C / 注销" → 进程退出 + 代理还原（`ProxyEnable=0`）+ 快照删除 + 关窗通知 1 条；macOS 同法各跑一次。
+
+**Phase 8.7 — 单实例与图标（B9/B10）**
+- [ ] 实测 `GApplication` 在 Win/mac 无 D-Bus 下的行为；退化则补文件锁单实例。
+      验证：连开两个进程 → 第二个 `present()` 已有窗口且进程数不增（Linux 已有此断言，Win/mac 各跑一次）；macOS `.icns` 与 Windows `.ico` 在窗口/任务栏/关于对话框三处显示正确。
+
+**Phase 8.8 — 三平台打包脚本（C1–C4，分开写）**
+
+> **位置规矩（2026-09-27 你定）**：脚本与验证清单一律放**项目根目录** —— `build.sh` / `build-win.ps1` / `build-mac.sh` / `VERIFY.md`；`packaging/` **只放编译打包出来的产物**，整目录被 git 忽略。三个脚本已按这条改过（`$RepoRoot = $PSScriptRoot`、`cd "$(dirname "$0")"`，产物仍写进 `packaging/windows/`、`packaging/macos/`），`.gitignore` 恢复原样。
+
+- [x] **Linux 脚本已就绪**：`build.sh`（根目录；不改；`packaging/PKGBUILD` 缺失问题见表 C 备注，需先补齐才能跑）。
+- [x] **Windows 脚本 `build-win.ps1`（根目录，与 `build.sh` 同级）**（PowerShell，探测 MSYS2 的 `gcc/pkg-config/windres/ntldd`，缺则打印 `pacman -S …` 安装命令后退出；内含 fmt/clippy/test 门禁）：release 构建（`x86_64-pc-windows-gnu`）→ `ntldd -R` 收拢 DLL + `share/glib-2.0`/`share/icons`/`share/libadwaita-1`/`lib/gtk-4.0`/`share/locale/zh_CN`/`etc/fonts` → `icon.png` 生成 `.ico` + 由脚本生成 `app.rc`（写进 `packaging/windows/`，版本==`Cargo.toml`，根 `build.rs` 用 `windres` 链进 exe，失败只降级为无图标）→ 带 `ssr-client-gtk.cmd` 启动器（`FONTCONFIG_PATH`/`XDG_DATA_DIRS`/`GSK_RENDERER=cairo`）→ **打包 `packaging/windows/ssr-client-gtk-<ver>-windows-x86_64.zip`**（**不用 NSIS**）→ 断言 zip 含 exe/launcher/DLL + 打印 sha256。
+- [x] **macOS 脚本 `build-mac.sh`（根目录）**（bash，`bash -n` 已过；探测 `brew` 的 gtk4/libadwaita/dylibbundler + 自带 `sips/iconutil/codesign`）：门禁 → release 构建 → 组 `packaging/macos/ssr-client-gtk.app`（`Info.plist` 版本==`Cargo.toml`、`icon.png`→`AppIcon.iconset`→`.icns`）→ `dylibbundler` 收 dylib 并改 `@executable_path` → ad-hoc `codesign --force --deep --sign -` → **产出 `.app`**（**不打 dmg**）→ 断言 bundle 结构 / 版本 / `otool -L` 不再指向 Homebrew / `codesign --verify`。
+- [x] 产物落 `packaging/windows/`、`packaging/macos/`，脚本内打印 sha256（Windows zip 的 SHA256、macOS 可执行文件的 SHA256）。
+      验证：**待你在 Windows / macOS 主机各执行一次**，回贴脚本输出（含断言行 + 产物 `ls`/`unzip -l`/`find .app`）；Linux 侧 `./build.sh`（补齐 packaging 后）rc=0 回归。本机能做的部分已做：`bash -n build-mac.sh` → OK、`bash -n build.sh` → OK、根 `build.rs` 在 Linux 上空跑不影响构建（`cargo build` 通过）。
+
+**Phase 8.9 — 三主机验证清单与文档**
+- [x] 产出逐平台验证清单 **`VERIFY.md`**：Linux / Windows / macOS 三段，每步一条可复制命令（build → `cargo test` → 打包脚本 → 启用代理探针：Windows 走 HTTP `curl -x`、Linux/macOS 走 SOCKS5 `curl --socks5-hostname` + HTTP 交叉验证 → 停用还原 byte-identical → 关窗零残留 → 单实例 → 中英切换），末尾附五条"回归底线"。
+- [ ] （可选，非门禁）GitHub Actions 三 job，仅作代码级回归备份。
+- [x] README 中英三平台系统要求（表格：Linux/Windows/macOS 各自要求）/ 安装方式（Linux 四件套、Windows 解压即用 + 防火墙授权、macOS `.app` + 右键→打开）/ 单端口一节写明**双协议与仅 Windows 走 HTTP** / 配置目录写明 Windows `%USERPROFILE%` 同构 / FAQ 加防火墙与 macOS 未公证两条；§0 已改三平台目标。
+      验证（实测）：`grep -rn '仅 Linux\|Linux-only\|Linux 桌面软件' README.md` → **0 命中**；`grep -c Windows README.md` → 10、`grep -c macOS README.md` → 6。
+
+### 11.4 决定（D9–D13，2026-09-27 全部拍板）
+
+| # | 问题 | 结论（2026-09-27 拍板） |
+|---|---|---|
+| D9 | Windows 打包形态 | ✅ **已拍板（2026-09-27）：只要 zip** —— 产出 `ssr-client-gtk-<ver>-windows-x86_64.zip`，**不用 NSIS / MSI / 安装器** |
+| D10 | Windows 系统代理与协议 | ✅ **已拍板（2026-09-27）：Windows 无原生 SOCKS → 流量转成 HTTP/HTTPS 代理**。系统代理写 `ProxyServer=127.0.0.1:<port>`（HTTP），配 B11 的单口首字节嗅探 + HTTP 前端；原 `socks=` 方案**作废**；~~W2 环境变量为辅~~ **已由 D14 取代：Windows 不再做环境变量后端** |
+| D11 | macOS 系统代理做几案 | ✅ **已拍板（2026-09-27）：按建议 M1 `networksetup`（SOCKS，macOS 原生支持）为主、M2 写 `~/.zshrc` 为辅**，与 Linux 两路一一对应 |
+| D12 | Win/mac 配置目录 | ✅ **已拍板（2026-09-27）：按建议仍用 `~/.ssr`（Windows 即 `%USERPROFILE%\.ssr`）**，不搬 AppData / Application Support，配置可整目录拷走 |
+| D13 | 打包与验证怎么跑 | ✅ **已拍板（2026-09-27）：三平台各有主机，本机不编译** → 我只写**三套分开的打包脚本**（Linux `build.sh` 已有，Win/mac 新写）+ 验证命令清单，你在对应主机执行回贴；CI 不是门禁（是否推仓库跑 CI 仍按你的规矩，默认不推） |
+| D14 | Windows 的「环境变量」选项 | ✅ **已拍板（2026-09-27）：Windows 只用桌面代理**（WinINET 注册表，D10 的 W1 已足够覆盖 Windows 上的消费者），**不实现 `HKCU\Environment` 的 W2 后端**；GUI 里该行**直接显示「环境变量（不支持）」并置灰**（复用 `Unsupported` 桌面那套行级禁用机制，行号改为 1）。实现：`Desktop::env_supported()`（`#[cfg]` 外的纯匹配，Windows = false）+ `sysproxy_env_unsupported` 词条（中英）+ 工厂按 `blocked_row` 禁用 + `refresh_sysproxy_pref` 把存成 EnvVar 的旧偏好钉回 Desktop。macOS / Linux 两路保持不变 |
+
+### 11.5 完成定义（跨平台版，达成即"成品可跨平台发布"）
+
+1. 同一 commit 在三平台 `cargo test` 全绿（Linux 数不减，Win/mac 有真实输出）。
+2. 三平台都能：跑起来、启用代理（**Windows 走 HTTP 前端、Linux/macOS 走 SOCKS5**，系统代理真的被写入并还原 byte-identical）、关窗零残留、单实例、中英切换；**唯一监听口数始终 = 1**。
+3. 三平台各有可交付产物且版本==`Cargo.toml`：**Linux 四件套 / Windows `.zip` / macOS `.app`**；Linux 四件套回归不受影响。
+4. §7 门禁三连（fmt / clippy -D warnings / test）在三平台都绿；三套打包脚本各自自带断言且在对应主机执行成功。
+
+---
+
+## 12. 进度行
 
 （每完成一项在此追加：`日期 | 项号 | 摘要 | 真实命令输出`；空 = 尚未开始）
 
@@ -481,3 +615,10 @@ GTK 主线程更新 UI（状态点、Toast）
 - 2026-09-27 | Phase 7.13 | **首启动态检测宿主系统语言（非简中→英语）**：语言记忆本就有，缺的是首启动规则的"精准"——`Lang::detect()` 改造：简中判定收窄为 `zh`/`zh_CN`/`zh_Hans`/`zh_SG`（含 codeset/modifier 与 `-`/`_`），**`zh_TW`/`zh_HK`/`zh_MO`/`zh_Hant` 按"除简中外"判英语**；`ja`/`fr`/`de`、`C`/`POSIX`、未设置 → 英语；变量优先级照 gettext（`LC_ALL` > `LC_MESSAGES` > `LANG`，`C` 视为无翻译继续找），并在 locale 非 C 时认 **`LANGUAGE` 语言列表**；判定抽成纯函数 `is_simplified_chinese()/is_posix_locale()/locale_head()` 便于无环境副作用的单测；已保存语言永远压过系统检测 | `lang_matrix.sh` 12 用例（每例先删 settings.json 真·首次启动，临时 PRINTLANG 打印后删除、`grep -r PRINTLANG src/` → 0）修复前→后：`zh_CN`→zh-CN 不变；**`zh_TW` zh-CN→en-US**；**`LC_ALL=zh_TW`（覆盖 zh_CN）zh-CN→en-US**；`en_US/ja_JP/fr_FR/C/C.UTF-8/未设置`→en-US 不变；`C+LANGUAGE=zh_CN`→en-US 不变；**`de_DE+LANGUAGE=zh_CN` en-US→zh-CN**；`LANGUAGE=zh_CN:en+LANG=zh_CN`→zh-CN；截图 `langshot_zh_CN.png`（中文界面+下拉「中文」）、`langshot_ja_JP.png`（英文界面+下拉 English）、`langshot_saved.png`（已存 zh-CN 而宿主日语 → 仍中文，记忆压过系统），错误行均 0 | 门禁 fmt ✓ / clippy -D warnings **0** / `cargo test` **98 passed, 0 failed, 3 ignored**（新增 2 条纯函数单测）/ doc **0** / 两个 .ui xmllint OK；`./build.sh` **rc=0**
 - 2026-09-27 | 7.13 调整 | 追加裁定：**繁中电脑也看简中**（上一条按字面把 `zh_TW`/`zh_HK`/`zh_MO`/`zh_Hant` 判成了英语）。`is_simplified_chinese()` 改名并放宽为 `is_chinese()`：`zh` 或 `zh_*` 一律中文（唯一那门中文 = 简体），单测 `only_simplified_chinese_counts_as_chinese` → `every_chinese_locale_gets_the_chinese_ui`（繁中四项挪进中文列表，另补 `ko_KR` 进英语列表）；`detect()` 文档同步。矩阵终值：`zh_TW` **en-US → zh-CN**、`LC_ALL=zh_TW`（覆盖 `LANG=zh_CN`）**en-US → zh-CN**，其余 10 用例不变（`zh_CN`/`de_DE+LANGUAGE=zh_CN`/`LANGUAGE=zh_CN:en` → zh-CN；`en_US`/`ja_JP`/`fr_FR`/`C`/`C.UTF-8`/未设置/`C+LANGUAGE=zh_CN` → en-US）；新增截图 `langshot_zh_TW.png`：繁中宿主首启 → 中文界面 + 下拉「中文」，错误行 0；临时 PRINTLANG 钩子验完删除（`grep -r PRINTLANG src/` → 0）。门禁 `cargo fmt --check` 绿 / `clippy -D warnings` **0** / `cargo test` **98 passed, 0 failed, 3 ignored** / `cargo doc` 告警 **0** / 两个 `.ui` `xmllint` OK；`./build.sh` **rc=0**
 - 2026-09-27 | Phase 6.4 调整 | **四件套产物统一到 packaging/ 一处**（你指出 build.sh 散落三处：`dist/`、`packaging/`、`target/`）。改动：①`packaging/tarball.sh` —— staging 从 `dist/` 改到 `mktemp -d` 临时目录（`trap` 自动清），两个 tar（发布布局 `*-x86_64.tar.gz`、PKGBUILD 源码 `$NAME-$VER.tar.gz`）**直接写 packaging/**，仓库里不再产生 `dist/`；②`build.sh` —— 打包前 `rm -rf target/debian target/generate-rpm dist`，`cargo deb` / `cargo generate-rpm` 完成后 `mv` 进 `packaging/`，`DEB/RPM/ARCH/TARBALL` 四个变量全指 `packaging/`；③新增三条断言：**`dist/` 不许存在**、**`target/debian|generate-rpm` 不许留 `.deb`/`.rpm`**、**源码 tar 不许混进 `.deb`/`.rpm`/`.pkg.tar.*`**（变量承接 `tar -tzf` 再 `case`，避开 `pipefail`+`grep -q` 的 SIGPIPE 误判）；④README 产物路径四行同步改到 `packaging/` 并写明"一处交付"。**踩坑记账**：deb/rpm 先搬进 `packaging/` 再跑 `tarball.sh`，rsync 的 `--exclude 'packaging/*.tar.gz'` 挡不住 `.deb`/`.rpm` —— 首跑源码 tar 从 441K 涨到 **3.7M**（里面打进了 1.6M deb + 1.7M rpm），补 `--exclude 'packaging/*.deb' 'packaging/*.rpm'` 后回到 **441K、76 条目、零包文件**，并由断言把这类回归挡死。 | 实测：`./build.sh` **rc=0 两轮**，日志含 `deb/rpm 移入 packaging/（交付物只放这里）`、`产物只在 packaging/ ✓（无 dist/，target/ 无包）`、`源码 tar 未混入包 ✓`、`四件套齐备（0.1.0）`；`ls packaging/` → deb 1.6M / rpm 1.7M / Arch `*.pkg.tar.zst` 2.1M / 发布 tar 2.1M / 源码 tar 441K；`[ ! -d dist ]` ✓；`target/debian`、`target/generate-rpm` 文件数均 0；门禁 `cargo fmt --check` 绿 / `clippy -D warnings` **0** / `cargo test` **98 passed, 0 failed, 3 ignored** / `cargo doc` 告警 **0** / 两个 `.ui` `xmllint` OK / `bash -n build.sh packaging/tarball.sh` OK
+- 2026-09-27 | §11 立项 | **跨平台（Linux/Windows/macOS）计划落盘**：全项目扫描 `src/` **8531** 行 Rust，产出四张清单（表A 编译期阻断 A1–A5、表B 运行期 Linux 专属 B1–B10、表C 打包资产 C1–C4、表D 无需改动）+ Phase **8.0–8.9** 实施阶段（每项带验证命令）+ 待拍板 **D9–D13** + 跨平台完成定义；§0 改为三平台目标，原「§11 进度行」改号 **§12**（306/340 两处 `见 §11` 同步改 §12）。关键事实：`ssr-client-rs` 0.1.0 平台中立（`grep -rn 'cfg(unix)|cfg(windows)|target_os|libc::|/proc/' <registry>/ssr-client-rs-0.1.0/{src,Cargo.toml}` → **0** 命中）；本机 LoongArch Deepin 无法构建 Win/mac → Win/mac 验证只认 CI 矩阵或你的实机输出，拿到真实输出前不打勾 | 扫计数实测：`grep -rn 'libc::' src` → **9**；`grep -rn '/proc/' src` → **10**（3 个文件：config/path.rs、core/proxy.rs、sysproxy/env.rs）；`grep -rn 'std::os::unix' src` → **1**（config/path.rs:29）；`grep -rn 'notify-send|gsettings|kwriteconfig5|kreadconfig5|dbus-send|networksetup' src` → **68**；`find src -name '*.rs' \| xargs cat \| wc -l` → **8531**；Linux 基线 `cargo test` → **98 passed / 0 failed / 3 ignored**
+- 2026-09-27 | §11 修订 | 按你三条批示更新跨平台计划：①**Windows 打包只要 zip**（NSIS/MSI 全部删掉），**macOS 只出 `.app`**（不打 dmg）；②**三平台各有主机、本机不编译** → 我的交付改为**三套分开写的打包脚本**（Linux `build.sh` 已有不再动，新增 `build-win.ps1` + `build-mac.sh`）+ 每套的验证命令清单，CI 降为可选项非门禁；③**Windows 无原生 SOCKS → 流量转 HTTP/HTTPS**（仅 Windows）：表 B 新增 **B11**（唯一监听口首字节嗅探 `0x05`→SOCKS5 / 否则→HTTP `CONNECT`+绝对 URI，进同一条 `Router`+SSR 链路，**端口数仍=1**，三平台同一份代码故本机可测）、B2 的 `socks=` 方案作废改写 `ProxyServer=127.0.0.1:<port>`（HTTP）、Phase 8.3 改为"HTTP 代理前端 + Win/mac 系统代理后端"并把 Windows 探针换成 `curl -x http://…`，Phase 8.8/8.9 改为"三平台分开的脚本 + 三主机验证清单"，§11.4 标记 D9/D10/D13 已拍板（D11/D12 仍待你定），§11.5 完成定义同步 | 实测：`grep -c 'NSIS' GOAL.md` → **4**（全部是\"不用 NSIS\"类否定表述，行 498/553/568 + 本行）；`grep -c 'B11\|build-win.ps1\|build-mac.sh' GOAL.md` → **9**；`git diff HEAD --numstat GOAL.md` → **135/4**（删掉的 4 行即被替换的 4 行）；未提交（`git status` 仅 GOAL.md）
+- 2026-09-27 | §11 收口 | **D11 / D12 按建议拍板，D9–D13 全部落定**：**D11** macOS 系统代理 = **M1 `networksetup`（SOCKS）为主、M2 写 `~/.zshrc` 管理块为辅**（与 Linux 两路一一对应，`macos.rs` 走 `Runner` 注入可 mock）；**D12** 配置目录 = **三平台都用 `~/.ssr`**（Windows 即 `%USERPROFILE%\.ssr`），不搬 `%APPDATA%`/`~/Library/Application Support`，`sysproxy-snapshot.json` 仍在 `~/.config/ssr-client-gtk/`（Windows 由 `home_dir()` 兜底 + `create_dir_all` 造出）。同步改：§11.4 标题改「决定（D9–D13，2026-09-27 全部拍板）」并把 D11/D12 由 ⬜ 改 ✅、表 B 的 B3/B7 去掉 `→ D11`/`→ D12` 改写成「已拍板」、Phase 8.2 标题与条目写死 D12 结论（三平台 `~/.ssr` + 快照目录 create_dir_all）。至此**无待拍板项**，Phase 8.1 起可直接开工 | 实测：`grep -n '⬜\|待拍板' GOAL.md` → **2 行且都在进度行里**（§11.4 正文 0 处）；`grep -c '已拍板' GOAL.md` → **11**；`git diff HEAD --numstat GOAL.md` → **136/4**（删的 4 行即被替换的 4 行），未提交
+- 2026-09-27 | Phase 8.1–8.6 / 8.8 / 8.9 | **自动执行 §11（本机能做的全部）**：①**8.1** cfg 化 + target 依赖（`libc`→`cfg(unix)`、新增 `windows-sys`）、`SetConsoleCtrlHandler`（Windows 退出清理，8.6 的代码也在这一条里）、`with_messages_locale` 非 unix 分支、`is_effective_root` cfg、`/proc` 三处收敛、测试 `/tmp`→`env::temp_dir()`、新增跨平台断言 `single_port_probe_and_handshake_without_proc`；**偏离已记账**（kde/gnome/env 不整模块 cfg，理由见 8.1 条目）。②**8.2** `home_dir_from(get)` 纯函数兜底 `HOME→USERPROFILE→HOMEDRIVE+HOMEPATH→temp`、快照目录跟随、新单测 5 断言。③**8.3** 新模块 `src/core/http_proxy.rs`（首字节嗅探 + `CONNECT`/绝对 URI + 回拨本机 SOCKS5 复用路由 + 解析失败 400）+ `src/sysproxy/windows.rs`（WinINET 注册表写 `ProxyServer=127.0.0.1:<port>` HTTP 形态，读写/回滚/删缺失值全 mock 断言）+ `src/sysproxy/macos.rs`（`networksetup` 逐服务 SOCKS 快照与还原）+ `Desktop::{Windows,Macos}` 与 `detect_desktop()` 按 OS 分裂。④**8.4** `notify.rs` 三后端（notify-send / osascript / 分离进程的 PowerShell 气泡）。⑤**8.5** `GetUserDefaultLocaleName` 语言兜底。⑥**8.8** `build-win.ps1`（MSYS2 探测→门禁→构建→ntldd 收 DLL→app.rc/build.rs 图标版本→`ssr-client-gtk.cmd`→zip+断言+sha256）、`build-mac.sh`（门禁→.app→.icns→dylibbundler→ad-hoc 签名→otool/codesign 断言）+ 根 `build.rs`（windres，失败降级）。⑦**8.9** `VERIFY.md` 三平台逐条验证清单 + README 三平台表格/安装/单端口双协议/`%USERPROFILE%`/FAQ 两条 | **门禁（合并并发改动后的最终状态，实测）**：`cargo fmt --check` OK / `cargo clippy --all-targets -D warnings` **0** / `cargo test` **117 passed, 0 failed, 4 ignored** / `cargo doc --no-deps` 告警 **0**；分项 `cargo test http_proxy -- --ignored` **1 passed**（真 curl `-x`）、`config::` 14、`sysproxy::` 29、notify 2 条不减；cfg 审计 `grep -rn 'libc::\|std::os::unix\|/proc/' src` → 24 行（12 文档 + 12 代码全部在 `#[cfg(unix)]` 内）；`bash -n build-mac.sh` OK、`bash -n build.sh` OK；README `grep '仅 Linux|Linux-only|Linux 桌面软件'` → 0。**并发记账**：19:28–19:33 另一会话/编辑器同时改 `src/ui/{dashboard,window}.rs`、`src/i18n.rs`、`src/sysproxy/mod.rs`（`Desktop::is_supported`、系统代理行按桌面显示文案等），中途一度 7 条 E0308，我停手不覆盖，19:33 收敛为 0 错误，上表门禁数字即**双方合并后**的结果。**未完成（要真机）**：8.3 实机探针、8.4/8.5/8.6 实机项、8.7 单实例实测、8.8 两台主机跑脚本、8.9 可选 CI；**未提交**（`git status` → 18 个改动 + 5 个未跟踪：`build.rs`、`packaging/`、`src/core/http_proxy.rs`、`src/sysproxy/{windows,macos}.rs`）。**另修 `.gitignore`**：原来整行忽略 `packaging`，导致三份脚本/文档（和此前的 `PKGBUILD`/`tarball.sh`）根本进不了 git —— 改成只忽略产物（`*.deb/*.rpm/*.pkg.tar.*/*.tar.gz/*.zip`、`windows/stage|app.rc|app.ico`、`macos/*.app`），脚本与 `VERIFY.md` 现在可提交；实测 `git check-ignore VERIFY.md` → rc=1（未忽略），`git check-ignore packaging/foo.deb` → 命中
+- 2026-09-27 | D14 | **Windows 只用桌面代理，「环境变量」行直接显示不支持**（你追加拍板；替代 D10 的 W2 后端，D10/B2/B4 已同步划改）。改动：①`sysproxy/mod.rs` 新增 `Desktop::env_supported()`（纯匹配，Windows=false，`Unsupported`/macOS/Linux=true）；②`i18n.rs` 新增词条 `sysproxy_env_unsupported`（zh「环境变量（不支持）」/ en "Env vars (unsupported)"，**注意该字段列表是 `define_strings!` 宏调用，只能用行注释 `///` 会编译失败**——已踩过一次）；③`dashboard.rs`：`sysproxy_items` 按平台换行文案、`sysproxy_factory` 由"固定禁行0"改成 `blocked_row: Option<u32>`（无后端→0，Windows→1）、`sysproxy_hint` 在 `!env_supported()` 时只给 OS 策略说明（绝不再提 shell/rc）、`refresh_sysproxy_pref` 把存成 EnvVar 的旧偏好钉回 Desktop、`wire_routing` 拦到 selected==1 静默弹回 0；④新单测 `windows_is_desktop_only_and_says_so`（行文案= `sysproxy_desktop_native` + `sysproxy_env_unsupported`、macOS 行文案不变、hint 不含 bash/.zshrc/shell、`Unsupported` 桌面仍可用 env）；⑤`VERIFY.md` Windows 段加该行的目视断言。macOS / Linux 的两路选择与文案**零改动** | 门禁实测：`cargo fmt --check` OK / `cargo clippy --all-targets -D warnings` **0** / `cargo test` **118 passed, 0 failed, 4 ignored**（较上行 +1 = 新单测）/ `cargo doc --no-deps` 告警 **0**；分项 `dashboard::` **3 passed**、`i18n::` 8 passed、`sysproxy::` 30 passed；未提交
+- 2026-09-27 | 位置规矩 | **脚本搬出 `packaging/`，回到项目根目录**（你定：根目录放脚本，`packaging/` 只放产物、整目录被 git 忽略）。改动：①`packaging/windows/build-win.ps1` → **`./build-win.ps1`**、`packaging/macos/build-mac.sh` → **`./build-mac.sh`**、`packaging/VERIFY.md` → **`./VERIFY.md`**（`packaging/windows/`、`packaging/macos/` 空目录已删）；②脚本内路径改写：PowerShell `$RepoRoot = (Join-Path $PSScriptRoot "..\..")` → **`$RepoRoot = $PSScriptRoot`** 并新增 `$OutDir = packaging\windows`（`app.ico`/`app.rc`/`stage/`/zip 全部落这里）、bash `cd "$(dirname "$0")/../.."` → **`cd "$(dirname "$0")"`**；③**`.gitignore` 恢复成 HEAD 原样**（我之前为放行脚本改过，现在脚本不在里面了，`git diff .gitignore` → 空）；④全仓引用改写：`packaging/windows/build-win.ps1`→`build-win.ps1`（4 处）、`packaging/macos/build-mac.sh`→`build-mac.sh`（6 处）、`packaging/VERIFY.md`→`VERIFY.md`（5 处），覆盖 GOAL/README/VERIFY/`build.rs` 注释与两脚本互指；⑤GOAL §11 Phase 8.8 顶部加「位置规矩」块并标注根目录 | 实测：`search_files 'packaging/(windows/build-win\|macos/build-mac\|VERIFY)'` → **0 命中**（无旧路径残留）；`git status --short -uall` → 根目录出现 `?? VERIFY.md / build-mac.sh / build-win.ps1`、`packaging/` 不再出现（空且被忽略）；`bash -n build-mac.sh && bash -n build.sh` → OK；门禁 `cargo fmt --check` OK / `clippy -D warnings` **0** / `cargo doc` 告警 **0** / `cargo test` 连跑 4 次：**118 passed, 0 failed, 4 ignored**（搬家后第一次出现过一次 `117 passed, 1 failed`，随后 4 次全绿、失败名未抓到、缓存里唯一的 FAILED 日志属于另一仓库 ssr-client-rs 的会话 → 记为**未复现的偶发**，如再出现按 `cargo test -- --test-threads=1` 定位）；未提交
+- 2026-09-27 | 跨平台 bug 复查 | **你要求逐项复查：共找出 13 处，全部修复**。**A. 会让 Win/mac 门禁直接失败的编译类**：①`Desktop::{Kde,Gnome,Unsupported}` + `classify_desktop` + `GNOME_TOKENS` 只由 Unix XDG 探测构造 → Windows/macOS 构建里 `dead_code`（never constructed / unused），`clippy -D warnings` 必挂 → 5 处加 `#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]`（与已有 Windows/Macos 分支对称）；②`config/path.rs` 的 `use std::fs;` 只被 `#[cfg(unix)]` root 探针用 → Windows unused import → 挂 `#[cfg(unix)]`；③`core/proxy.rs` 测试的 `HashSet`/`fs` 同理 → 挂 `#[cfg(unix)]`。**B. 偶发 1 failed 的真因**：④`invalid_routing_fails_before_binding_anything` 等 3 处用「进程全部监听口集合」前后对比，与并行的 socks5/http_proxy 测试 `bind(0)` 抢端口。三层修法：新建 `core::test_sync`（共享互斥 + `free_port()` 改从 **20000..30000** 取号，低于三平台 ephemeral 下限 Linux 32768 / Win·mac 49152，邻居测试 `bind(0)` 抢不走）、proxy 与 http_proxy 共用同一把锁、集合断言改 `pool_listen_tcp_ports()` 只看自己的号段。**C. 逻辑 bug**：⑤macOS 还原对「Enabled: Yes 但地址为空」(`1||0`) 会开开关却不写地址 → 停用后系统仍指着我们已关闭的口 → 地址不可用一律还原 OFF（新增单测）；⑥HTTP 绝对方行 `http://[::1]/path`（方括号 IPv6 无端口）被 400 → 新增 `split_authority()` 支持 `[v6]`/`[v6]:port`，CONNECT 仍强制端口（补 2 断言）；⑦`enable(EnvVar)` 遇 Windows 历史残留偏好会去写 bash/zsh/fish rc → 条件加 `&& self.desktop.env_supported()` 回落注册表（新增单测）；⑧GUI 启动的子进程 PATH 可能缺 `/usr/sbin`（macOS `networksetup` 就在那）→ `CommandRunner` 给裸程序名前置 `/usr/sbin:/sbin`。**D. 打包脚本**：⑨`build-win.ps1` ntldd 解析：缩进行 `-split '\s+'` 首 token 是空串 → 一个 DLL 都收不到 → `Count -lt 10` 必 Fail → 过滤空 token + 统一斜杠再比前缀；⑩两脚本门禁前缺 `rustup component add rustfmt clippy`；⑪`.DESCRIPTION` 的 pacman 命令缺 gcc/binutils（第一步就跑不过）；⑫运行时数据缺 `lib\gio`、`lib\gdk-pixbuf-2.0` → 加入复制清单（Test-Path 保护）；⑬`build-mac.sh` 缺 `icon.png` 时在 sips 处被 `set -e` 打断 → 提前显式报错。**E. 同步**：`windows.rs` 模块头「W2 env 是辅助路径」与 D14 冲突 → 改写；`VERIFY.md` 期望测试数 114/110 → **120**，macOS 段补 networksetup PATH/权限观察点 +「数据文件仍指向构建机 Homebrew 前缀」已知限制，Windows 段补图标（gdk-pixbuf loaders cache 指向 C:\msys64）观察点 | **源码级核实（非猜测）**：在本机 `windows-sys-0.59.0` registry 源码逐条对签名 —— `PHANDLER_ROUTINE = Option<unsafe extern "system" fn(u32) -> BOOL>`、`SetConsoleCtrlHandler(PHANDLER_ROUTINE, BOOL)`、`GetUserDefaultLocaleName(PWSTR, i32) -> i32`、`CTRL_* : u32`、features `Win32_System_Console`/`Win32_Globalization`/`Win32_Foundation` 均存在 → `main.rs`/`i18n.rs` 调用全对得上；unix-only API 全量复查 `grep -rn 'libc::\|std::os::unix\|/proc/' src` → 5 个文件每处都在 `#[cfg(unix)]` 内。**本机做不到**：Win/mac 无工具链与交叉 GTK 库，A 类是按 lint 机制推演 + 手工核对，最终以真机跑 `build-win.ps1`/`build-mac.sh` 门禁为准；本机无 pwsh，`.ps1` 只能人工复核。**门禁实测**：`cargo fmt --check` OK / `clippy --all-targets -D warnings` **0** / `cargo test` 连跑 4 次 **120 passed, 0 failed, 4 ignored**（复现的偶发 1 failed 已随 ④ 消失）/ `cargo doc` 告警 **0** / `bash -n build.sh build-mac.sh` OK；未提交

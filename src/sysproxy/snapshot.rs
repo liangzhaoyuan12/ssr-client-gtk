@@ -58,16 +58,16 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// `~/.config/ssr-client-gtk` (or `$XDG_CONFIG_HOME/…`).
+    ///
+    /// The fallback root follows [`crate::config::path::home_dir`] so Windows
+    /// lands in `%USERPROFILE%\.config\ssr-client-gtk` instead of a
+    /// hard-coded `/tmp` (GOAL §11 B8 / D12); `save_to` already does
+    /// `create_dir_all`, which is what makes that path work on Windows.
     pub fn config_dir() -> PathBuf {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
-            .unwrap_or_else(|| {
-                let home = std::env::var_os("HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from("/tmp"));
-                home.join(".config")
-            });
+            .unwrap_or_else(|| crate::config::path::home_dir().join(".config"));
         base.join("ssr-client-gtk")
     }
 

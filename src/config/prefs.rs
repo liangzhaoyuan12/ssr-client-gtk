@@ -74,11 +74,14 @@ mod tests {
 
     #[test]
     fn round_trips_language_and_routing_together() {
+        // Platform-neutral path: GOAL §11 A5 says no hard-coded `/tmp` in
+        // tests (Windows has no `/tmp`); this is a pure string round-trip.
+        let acl = std::env::temp_dir().join("a.acl").display().to_string();
         let prefs = Prefs {
             language: Some(Lang::EnUs),
             routing: RoutingSettings {
                 mode: crate::routing::RouteMode::BypassLanCn,
-                acl_path: "/tmp/a.acl".into(),
+                acl_path: acl.clone(),
                 dns: crate::routing::dns::DnsConfig::parse("223.5.5.5").unwrap(),
             },
             sysproxy: SysProxyPref::EnvVar,
@@ -88,7 +91,7 @@ mod tests {
         let back: Prefs = serde_json::from_str(&text).unwrap();
         assert_eq!(back.language, Some(Lang::EnUs));
         assert_eq!(back.routing.mode, crate::routing::RouteMode::BypassLanCn);
-        assert_eq!(back.routing.acl_path, "/tmp/a.acl");
+        assert_eq!(back.routing.acl_path, acl);
         assert_eq!(back.sysproxy, SysProxyPref::EnvVar);
         assert_eq!(back.selected_profile.as_deref(), Some("hk"));
     }

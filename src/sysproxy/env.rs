@@ -89,18 +89,24 @@ pub fn detect() -> Result<Shell, String> {
     }
     // 2) Walk the parent-process chain: launched from a terminal, some
     //    ancestor really is the shell that will read the rc file.
-    let mut pid = std::process::id();
-    for _ in 0..64 {
-        let Some(ppid) = parent_of(pid) else { break };
-        if ppid <= 1 {
-            break;
+    //    Unix-only: the walk reads `/proc/<pid>/{status,cmdline,comm}`
+    //    (GOAL §11 A5). Windows has no rc files to configure at all, so it
+    //    only ever reaches the error below there.
+    #[cfg(unix)]
+    {
+        let mut pid = std::process::id();
+        for _ in 0..64 {
+            let Some(ppid) = parent_of(pid) else { break };
+            if ppid <= 1 {
+                break;
+            }
+            if let Some(exe) = cmdline_of(ppid)
+                && let Some(shell) = Shell::from_exe(&exe)
+            {
+                return Ok(shell);
+            }
+            pid = ppid;
         }
-        if let Some(exe) = cmdline_of(ppid)
-            && let Some(shell) = Shell::from_exe(&exe)
-        {
-            return Ok(shell);
-        }
-        pid = ppid;
     }
     let shell = std::env::var("SHELL").unwrap_or_default();
     Err(format!(
@@ -109,6 +115,7 @@ pub fn detect() -> Result<Shell, String> {
 }
 
 /// `PPid:` from `/proc/<pid>/status`.
+#[cfg(unix)]
 fn parent_of(pid: u32) -> Option<u32> {
     let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
     status
@@ -121,6 +128,7 @@ fn parent_of(pid: u32) -> Option<u32> {
 }
 
 /// argv0 of `/proc/<pid>/cmdline`, falling back to `comm`.
+#[cfg(unix)]
 fn cmdline_of(pid: u32) -> Option<String> {
     let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     let argv0 = raw.split(|b| *b == 0).next().filter(|s| !s.is_empty())?;

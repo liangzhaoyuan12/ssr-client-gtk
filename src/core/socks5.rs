@@ -59,17 +59,33 @@ pub(crate) async fn serve(
     alive: Arc<AtomicBool>,
     events: async_channel::Sender<ProxyEvent>,
 ) {
+    // Loopback port for the HTTP adapter's self-dial (GOAL §11 B11).
+    let local_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
     let mut reason: Option<String> = None;
     loop {
         tokio::select! {
             accepted = listener.accept() => {
                 match accepted {
-                    Ok((stream, peer)) => {
+                    Ok((mut stream, peer)) => {
                         log::debug!("[s5] connection from {peer}");
                         let ctx = Arc::clone(&ctx);
                         tokio::spawn(async move {
-                            if let Err(e) = handle(stream, &ctx).await {
-                                log::debug!("[s5] {peer} closed: {e}");
+                            match sniff(&mut stream).await {
+                                Ok(Protocol::Socks5) => {
+                                    if let Err(e) = handle(stream, &ctx).await {
+                                        log::debug!("[s5] {peer} closed: {e}");
+                                    }
+                                }
+                                Ok(Protocol::Http) => {
+                                    if let Err(e) =
+                                        crate::core::http_proxy::handle(stream, &ctx, local_port).await
+                                    {
+                                        log::debug!("[http] {peer} closed: {e}");
+                                    }
+                                }
+                                // Peer said nothing and hung up (or the
+                                // peek failed) — nothing to answer.
+                                Ok(Protocol::Silent) | Err(_) => {}
                             }
                         });
                     }
@@ -94,6 +110,33 @@ pub(crate) async fn serve(
     // Released last: everything interested has been notified by now.
     drop(listener);
     alive.store(false, Ordering::SeqCst);
+}
+
+/// What the first byte of a connection says about the protocol
+/// (GOAL §11 B11 — one listener, two dialects).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Protocol {
+    /// `0x05` — SOCKS5.
+    Socks5,
+    /// Anything else — assume HTTP proxy (the adapter rejects it with 400
+    /// when it does not parse).
+    Http,
+    /// Connected and hung up without saying anything.
+    Silent,
+}
+
+/// Look at the first byte **without consuming it** (`peek`), so the SOCKS5
+/// dialogue starts at exactly the same byte offset as before.
+async fn sniff(stream: &mut TcpStream) -> Result<Protocol, std::io::Error> {
+    let mut first = [0u8; 1];
+    let n = stream.peek(&mut first).await?;
+    Ok(if n == 0 {
+        Protocol::Silent
+    } else if first[0] == 0x05 {
+        Protocol::Socks5
+    } else {
+        Protocol::Http
+    })
 }
 
 /// One client connection: greeting → request → routed relay.
@@ -386,7 +429,7 @@ async fn resolve_target(
 
 /// Bidirectional pump with a reset-on-activity idle timeout — the same
 /// semantics the core applies to tunnelled connections.
-async fn pump<A, B>(a: A, b: B, idle: Duration) -> Result<(), String>
+pub(crate) async fn pump<A, B>(a: A, b: B, idle: Duration) -> Result<(), String>
 where
     A: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     B: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,

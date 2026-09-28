@@ -154,9 +154,20 @@ define_strings! {
     dns_ali,
     dns_tencent,
     sysproxy_mode_label,
-    sysproxy_desktop,
     sysproxy_env,
-    sysproxy_desktop_hint,
+    // `sysproxy_env_unsupported`: shown instead of `sysproxy_env` where the
+    // env-var strategy does not exist (Windows — decision D14: desktop only).
+    // Line comment, not `///`: this list is a macro invocation.
+    sysproxy_env_unsupported,
+    sysproxy_desktop_gnome,
+    sysproxy_desktop_kde,
+    sysproxy_desktop_unsupported,
+    sysproxy_desktop_native,
+    sysproxy_gnome_hint,
+    sysproxy_kde_hint,
+    sysproxy_unsupported_hint,
+    sysproxy_unsupported_toast,
+    sysproxy_native_hint,
     sysproxy_env_hint,
     sysproxy_env_unknown,
 }
@@ -224,8 +235,34 @@ impl Lang {
                 Lang::EnUs
             };
         }
+        // Windows usually has none of the POSIX locale variables set, so fall
+        // back to the user's default locale name (`zh-CN`, `en-US`, …) —
+        // GOAL §11 B6 / Phase 8.5.
+        #[cfg(windows)]
+        if let Some(locale) = windows_user_locale() {
+            return if is_chinese(&locale) {
+                Lang::ZhCn
+            } else {
+                Lang::EnUs
+            };
+        }
         Lang::EnUs
     }
+}
+
+/// `GetUserDefaultLocaleName` → `zh-CN`-style BCP-47 tag, if available.
+#[cfg(windows)]
+fn windows_user_locale() -> Option<String> {
+    use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
+
+    // LOCALE_NAME_MAX_LENGTH is 85 including the trailing NUL.
+    let mut buf = [0u16; 85];
+    let len = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), buf.len() as i32) };
+    if len <= 1 {
+        return None;
+    }
+    // `len` counts the trailing NUL.
+    Some(String::from_utf16_lossy(&buf[..len as usize - 1]))
 }
 
 /// `C` / `POSIX`, with or without a codeset or modifier — "no translation",
@@ -458,9 +495,17 @@ pub const ZH: Strings = Strings {
     dns_ali: "阿里云 DNS",
     dns_tencent: "腾讯云 DNSPod",
     sysproxy_mode_label: "系统代理方式",
-    sysproxy_desktop: "桌面设置",
     sysproxy_env: "环境变量",
-    sysproxy_desktop_hint: "由桌面环境自身的代理设置接管（KDE / GNOME 及其衍生）。",
+    sysproxy_env_unsupported: "环境变量（不支持）",
+    sysproxy_desktop_gnome: "桌面设置（GNOME 代理）",
+    sysproxy_desktop_kde: "桌面设置（KDE 代理）",
+    sysproxy_desktop_unsupported: "桌面设置（不支持）",
+    sysproxy_desktop_native: "桌面设置（系统代理）",
+    sysproxy_gnome_hint: "当前桌面 {desktop}（GNOME 系）：启用后通过 gsettings 写入桌面自身的系统代理设置。",
+    sysproxy_kde_hint: "当前桌面 {desktop}（KDE 系）：启用后通过 kwriteconfig5 写入 kioslaverc，KIO 重新加载后生效。",
+    sysproxy_unsupported_hint: "当前桌面 {desktop} 不支持自动设置系统代理，“桌面设置”已置灰禁用，请改用环境变量方式。",
+    sysproxy_unsupported_toast: "当前桌面 {desktop} 不支持桌面代理设置，请改用环境变量方式",
+    sysproxy_native_hint: "当前系统 {desktop}：启用后直接写入操作系统自身的代理设置。",
     sysproxy_env_hint: "写入 {rc}，仅对新开的终端生效。",
     sysproxy_env_unknown: "无法确定当前 shell 的配置文件，启用代理时会报错（支持 bash / zsh / fish）。",
     steps: &[
@@ -583,9 +628,17 @@ pub const EN: Strings = Strings {
     dns_ali: "AliDNS (223.5.5.5)",
     dns_tencent: "DNSPod Public DNS+ (119.29.29.29)",
     sysproxy_mode_label: "System proxy",
-    sysproxy_desktop: "Desktop settings",
     sysproxy_env: "Env vars",
-    sysproxy_desktop_hint: "Handled by the desktop's own proxy settings (KDE / GNOME and derivatives).",
+    sysproxy_env_unsupported: "Env vars (unsupported)",
+    sysproxy_desktop_gnome: "Desktop settings (GNOME)",
+    sysproxy_desktop_kde: "Desktop settings (KDE)",
+    sysproxy_desktop_unsupported: "Desktop settings (unsupported)",
+    sysproxy_desktop_native: "Desktop settings (OS)",
+    sysproxy_gnome_hint: "Desktop {desktop} (GNOME family): the desktop's own proxy settings are written via gsettings.",
+    sysproxy_kde_hint: "Desktop {desktop} (KDE family): written to kioslaverc via kwriteconfig5; KIO reloads it.",
+    sysproxy_unsupported_hint: "Desktop {desktop} cannot set the system proxy automatically — the Desktop settings option is disabled; use env vars instead.",
+    sysproxy_unsupported_toast: "Desktop {desktop} does not support desktop proxy settings — use env vars instead",
+    sysproxy_native_hint: "System {desktop}: written straight into the OS's own proxy settings.",
     sysproxy_env_hint: "Written to {rc}; takes effect in newly opened terminals only.",
     sysproxy_env_unknown: "Cannot determine this shell's rc file — enabling will report an error (bash / zsh / fish supported).",
     steps: &[

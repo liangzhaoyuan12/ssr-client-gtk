@@ -478,9 +478,11 @@ mod tests {
 
     #[test]
     fn settings_serialise_with_stable_keys() {
+        // `env::temp_dir()` instead of a literal `/tmp` — GOAL §11 A5.
+        let acl = std::env::temp_dir().join("x.acl").display().to_string();
         let s = RoutingSettings {
             mode: RouteMode::BypassLanCn,
-            acl_path: "/tmp/x.acl".into(),
+            acl_path: acl.clone(),
             dns: dns::DnsConfig::parse("223.5.5.5").unwrap(),
         };
         let text = serde_json::to_string(&s).unwrap();

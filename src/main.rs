@@ -43,6 +43,7 @@ fn exit_signal_pending() -> bool {
 }
 
 /// Async-signal-safe: a single atomic store, nothing else.
+#[cfg(unix)]
 extern "C" fn record_exit_signal(sig: libc::c_int) {
     EXIT_SIGNAL.store(sig, std::sync::atomic::Ordering::SeqCst);
 }
@@ -55,6 +56,7 @@ extern "C" fn record_exit_signal(sig: libc::c_int) {
 /// (stop proxy → restore system proxy → drop snapshot) runs exactly as it does
 /// for a window close. SIGKILL cannot be caught — the leftover snapshot plus
 /// `startup_self_heal` covers that case on the next launch.
+#[cfg(unix)]
 fn install_exit_signal_handlers() {
     unsafe {
         let mut sa: libc::sigaction = std::mem::zeroed();
@@ -64,6 +66,33 @@ fn install_exit_signal_handlers() {
         for sig in [libc::SIGHUP, libc::SIGINT, libc::SIGTERM, libc::SIGQUIT] {
             libc::sigaction(sig, &sa, std::ptr::null_mut());
         }
+    }
+}
+
+/// Windows equivalent of [`install_exit_signal_handlers`]: the console ctrl
+/// handler records "go away" for Ctrl-C / Ctrl-Break / closing the console /
+/// system shutdown, and the same 100 ms poll turns it into a normal
+/// `window.close()` so the desktop proxy is restored (GOAL §11 A2 / Phase 8.6).
+/// The value stored is `1` — `exit_signal_pending()` only checks non-zero.
+#[cfg(windows)]
+fn install_exit_signal_handlers() {
+    use windows_sys::Win32::System::Console::{
+        CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, CTRL_SHUTDOWN_EVENT,
+        SetConsoleCtrlHandler,
+    };
+
+    unsafe extern "system" fn on_ctrl_event(ctrl_type: u32) -> i32 {
+        match ctrl_type {
+            CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT | CTRL_SHUTDOWN_EVENT => {
+                EXIT_SIGNAL.store(1, std::sync::atomic::Ordering::SeqCst);
+                1 // TRUE — we handled it; the poll then closes the window
+            }
+            _ => 0,
+        }
+    }
+
+    unsafe {
+        SetConsoleCtrlHandler(Some(on_ctrl_event), 1);
     }
 }
 

@@ -150,7 +150,11 @@ impl Ui {
         // Sub-views from their own builders.
         let list = ListUi::new(Builder::from_string(LIST_UI));
         let form = FormUi::new(Builder::from_string(FORM_UI));
-        let dash = DashUi::new(Builder::from_string(DASH_UI), state.strings());
+        let dash = DashUi::new(
+            Builder::from_string(DASH_UI),
+            state.strings(),
+            state.sys.desktop(),
+        );
         sidebar_holder.append(&list.root);
         stack.add_titled(&form.root, Some("form"), "form");
         stack.add_titled(&dash.root, Some("dashboard"), "dashboard");
@@ -577,6 +581,12 @@ pub fn open_about(ui: &Rc<Ui>, state: &AppState) {
 /// dialog is built, so point `LC_MESSAGES` at the UI language, build and
 /// present, then restore: the labels keep the language they were built with
 /// and no other code runs with the flipped locale.
+///
+/// Windows has no `LC_MESSAGES` category (GOAL §11 A3): the non-unix build
+/// just runs the closure — GTK's own labels then follow the system locale
+/// instead of the in-app switch (Phase 8.5 probe decides whether that is
+/// worth fixing via `LANGUAGE`/`LC_ALL`).
+#[cfg(unix)]
 fn with_messages_locale(lang: crate::i18n::Lang, f: impl FnOnce()) {
     // zh → the Chinese catalog; English → the C locale, which gettext leaves
     // untranslated (English).
@@ -600,6 +610,11 @@ fn with_messages_locale(lang: crate::i18n::Lang, f: impl FnOnce()) {
             libc::setlocale(libc::LC_MESSAGES, prev);
         }
     }
+}
+
+#[cfg(not(unix))]
+fn with_messages_locale(_lang: crate::i18n::Lang, f: impl FnOnce()) {
+    f();
 }
 
 pub fn toggle_proxy(ui: &Rc<Ui>, state: &Rc<AppState>) {
