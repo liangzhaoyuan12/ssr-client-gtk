@@ -27,7 +27,7 @@ curl -sS -x socks5h://127.0.0.1:1080 https://api.ipify.org   # 出口 IP = 服�
 curl -sS -x http://127.0.0.1:1080  http://example.com -o /dev/null -w '%{http_code}\n'  # HTTP 前端同样可用
 # 停用后：端口消失、系统代理回基线、~/.config/ssr-client-gtk/sysproxy-snapshot.json 删除
 
-# 4) 四件套（需先补齐 packaging/PKGBUILD —— 见 GOAL 表 C 备注）
+# 4) 四件套（build.sh 现写 control/spec/PKGBUILD，只调系统工具 dpkg-deb/rpmbuild/makepkg/tar）
 ./build.sh --check
 ls -lh packaging/*.deb packaging/*.rpm packaging/*.pkg.tar.zst packaging/*.tar.gz
 ```

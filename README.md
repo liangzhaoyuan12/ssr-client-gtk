@@ -28,18 +28,21 @@ stop the proxy, with automatic system-proxy handling.
 ### Linux：四种发行产物，任选其一 / pick one of four artifacts
 
 ```bash
+# 架构段取自构建机（x86_64 构建 = amd64/x86_64，龙芯 = loong64/loongarch64）：
+#   deb 用 dpkg --print-architecture，rpm 用 rpm --eval '%{_arch}'，其余用 uname -m
+
 # Debian / Ubuntu
-sudo dpkg -i ssr-client-gtk_0.1.0-1_amd64.deb      # 或 apt install ./<deb>
+sudo dpkg -i ssr-client-gtk_0.1.0-1_<deb架构>.deb   # 或 apt install ./<deb>
 
 # Fedora / RPM 系
-sudo dnf install ./ssr-client-gtk-0.1.0-1.x86_64.rpm
+sudo dnf install ./ssr-client-gtk_0.1.0-1.<rpm架构>.rpm
 
 # Arch Linux
-pacman -U ssr-client-gtk-0.1.0-1-x86_64.pkg.tar.zst
+pacman -U ssr-client-gtk_0.1.0-1-<arch>.pkg.tar.zst
 
 # 免安装 tar.gz / portable tarball
-tar -xzf ssr-client-gtk-0.1.0-x86_64.tar.gz
-./ssr-client-gtk-0.1.0-x86_64/bin/ssr-client-gtk
+tar -xzf ssr-client-gtk-0.1.0-<arch>.tar.gz
+./ssr-client-gtk-0.1.0-<arch>/bin/ssr-client-gtk
 ```
 
 ### Windows：绿色 zip（无安装器，决定 D9）
@@ -80,20 +83,26 @@ per-platform verification steps live in `VERIFY.md`.
 ./build.sh --check    # 先跑门禁（fmt/clippy/test）再构建
 ```
 
-版本单一来源 = `Cargo.toml`：脚本读取后自动同步 `packaging/PKGBUILD` 的
-`pkgver`，构建完断言四个产物文件名与包内版本（deb `Version` / rpm
-`%{VERSION}`）== `Cargo.toml` 版本，不一致即失败。依赖处理：核验构建环境
-gtk4 ≥ 4.18 / libadwaita ≥ 1.5（与 Cargo features `v4_18`/`v1_5` 一致）、
-缺失的 `cargo-deb`/`cargo-generate-rpm` 自动 `cargo install`、`makepkg`/`rsync`
-缺失给出安装指引、核验 features/rpm requires/PKGBUILD depends 三处运行时
-依赖下限一致、`cargo --locked` 保证可复现构建。四件套统一落在 **`packaging/`**
-这一处（脚本断言：不再出现 `dist/`，`target/` 下不许留包）：
+**打包只直接调用系统工具，绝不 `cargo install`**：deb → `dpkg-deb`
+（`Depends` 的 ELF 部分由系统 `dpkg-shlibdeps` 补齐）、rpm → `rpmbuild`
+（脚本现写 spec）、Arch → `makepkg`（脚本现写 PKGBUILD，`--nodeps`）、
+tar.gz → `tar -czf`；工具缺失直接给安装指引退出（`dpkg` / `rpm` /
+`makepkg` / `libarchive-tools` / `tar`）。
+
+版本单一来源 = `Cargo.toml`：脚本读取后用于四个产物的文件名与包内版本断言
+（deb `Version` / rpm `%{VERSION}` / Arch `.PKGINFO`），不一致即失败退出；
+架构一律从本机系统读取（`dpkg --print-architecture` / `rpm --eval %{_arch}` /
+`uname -m` / `makepkg.conf` 的 `CARCH`），不硬编码 x86_64。依赖处理：核验
+构建环境 gtk4 ≥ 4.18 / libadwaita ≥ 1.5（与 Cargo features `v4_18`/`v1_5`
+一致，运行时下限在 `build.sh` 里只声明一处）、`cargo --locked` 可复现构建。
+四件套统一落在 **`packaging/`** 这一处（脚本断言：不出现 `dist/`，仓库别处
+不许有包）：
 
 ```text
-packaging/ssr-client-gtk_<ver>-1_amd64.deb
-packaging/ssr-client-gtk_<ver>-1.x86_64.rpm
-packaging/ssr-client-gtk_<ver>-1-x86_64.pkg.tar.zst
-packaging/ssr-client-gtk_<ver>-x86_64.tar.gz
+packaging/ssr-client-gtk_<ver>-1_<deb架构>.deb       # loong64 / amd64
+packaging/ssr-client-gtk_<ver>-1.<rpm架构>.rpm       # loongarch64 / x86_64
+packaging/ssr-client-gtk_<ver>-1-<arch>.pkg.tar.zst
+packaging/ssr-client-gtk_<ver>-<arch>.tar.gz
 ```
 
 ## 使用 / Usage
