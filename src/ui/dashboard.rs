@@ -408,10 +408,7 @@ pub fn refresh_routing(ui: &Ui, state: &AppState) {
     let routing = state.routing.borrow().clone();
     let s = state.strings();
 
-    let mode_idx = RouteMode::ALL
-        .iter()
-        .position(|m| *m == routing.mode)
-        .unwrap_or(0) as u32;
+    let mode_idx = mode_index(routing.mode);
     if ui.dash.route_mode.selected() != mode_idx {
         ui.dash.route_mode.set_selected(mode_idx);
     }
@@ -604,7 +601,7 @@ pub fn rebuild_routing_text(ui: &Ui, state: &AppState) {
 }
 
 /// Tell the user the card only applies from the next enable.
-fn hint_restart(ui: &Rc<Ui>, state: &Rc<AppState>) {
+pub(crate) fn hint_restart(ui: &Rc<Ui>, state: &Rc<AppState>) {
     if state.proxy.is_running() {
         toast(&ui.toast_overlay, state.strings().route_restart_hint);
     }
@@ -626,48 +623,6 @@ fn apply_mode(ui: &Rc<Ui>, state: &Rc<AppState>, mode: RouteMode) {
     state.save_routing();
     refresh_routing(ui, state);
     hint_restart(ui, state);
-}
-
-/// Ask for an ACL file; cancel puts the dropdown back where it was.
-fn pick_acl_file(ui: &Rc<Ui>, state: &Rc<AppState>) {
-    let dialog = gtk::FileDialog::new();
-    dialog.set_title(state.strings().route_acl_pick);
-    dialog.set_modal(true);
-    let ui2 = ui.clone();
-    let state2 = state.clone();
-    let parent = ui2.window.clone();
-    dialog.open(Some(&parent), None::<&gtk::gio::Cancellable>, move |res| {
-        let s = state2.strings();
-        let path = match res {
-            Ok(file) => file.path(),
-            Err(_) => None, // cancelled
-        };
-        let Some(path) = path else {
-            // Cancelled: restore the previous selection.
-            ui2.dash
-                .route_mode
-                .set_selected(mode_index(state2.routing.borrow().mode));
-            return;
-        };
-        match crate::routing::acl::Acl::load(&path) {
-            Ok(_) => {
-                {
-                    let mut routing = state2.routing.borrow_mut();
-                    routing.acl_path = path.to_string_lossy().to_string();
-                    routing.mode = RouteMode::Acl;
-                }
-                state2.save_routing();
-                refresh_routing(&ui2, &state2);
-                hint_restart(&ui2, &state2);
-            }
-            Err(e) => {
-                toast(&ui2.toast_overlay, &error_text(&e, s));
-                ui2.dash
-                    .route_mode
-                    .set_selected(mode_index(state2.routing.borrow().mode));
-            }
-        }
-    });
 }
 
 /// Rebuild the DNS setting from the dropdown + entry (never saves junk:
@@ -715,7 +670,9 @@ pub fn wire_routing(ui: &Rc<Ui>, state: &Rc<AppState>) {
                 return;
             }
             if mode == RouteMode::Acl && state.routing.borrow().acl_path.trim().is_empty() {
-                pick_acl_file(&ui, &state);
+                // Nothing written yet: the in-app editor opens so the
+                // mode only applies once real rules are saved.
+                crate::ui::acl_editor::open(&ui, &state);
                 return;
             }
             apply_mode(&ui, &state, mode);
@@ -794,9 +751,9 @@ pub fn wire_routing(ui: &Rc<Ui>, state: &Rc<AppState>) {
         let btn = ui.dash.btn_acl_pick.clone();
         btn.connect_clicked(move |btn| {
             // Only reachable while ACL mode is active (row is hidden
-            // otherwise); re-picking keeps the mode.
+            // otherwise); editing keeps the mode.
             let _ = btn;
-            pick_acl_file(&ui, &state);
+            crate::ui::acl_editor::open(&ui, &state);
         });
     }
 }

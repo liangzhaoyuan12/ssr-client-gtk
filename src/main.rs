@@ -291,6 +291,16 @@ fn main() {
             });
         }
 
+        //   SSR_GTK_DEV_ACL=1 → open the ACL editor (fires the real
+        //   button's `clicked` signal, after the window is mapped).
+        if std::env::var("SSR_GTK_DEV_ACL").is_ok() {
+            let ui_acl = ui.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(600), move || {
+                ui_acl.dash.btn_acl_pick.emit_by_name::<()>("clicked", &[]);
+                glib::ControlFlow::Break
+            });
+        }
+
         *existing2.borrow_mut() = Some(ui);
     });
 

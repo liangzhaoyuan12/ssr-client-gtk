@@ -157,7 +157,7 @@
                     <property name="visible">False</property>
                     <child>
                       <object class="GtkLabel" id="lbl_acl_path">
-                        <property name="label">未选择 ACL 文件</property>
+                        <property name="label">尚未编写 ACL 规则</property>
                         <property name="xalign">0</property>
                         <property name="hexpand">True</property>
                         <property name="ellipsize">end</property>
@@ -166,7 +166,7 @@
                     </child>
                     <child>
                       <object class="GtkButton" id="btn_acl_pick">
-                        <property name="label">选择文件…</property>
+                        <property name="label">编辑规则…</property>
                       </object>
                     </child>
                   </object>

@@ -142,6 +142,15 @@ define_strings! {
     route_acl_file,
     route_acl_pick,
     route_acl_none,
+    // ACL in-app editor (`ui/acl_editor.rs`): dialog title, the syntax
+    // help shown next to the editor, the seed template, the inline parse
+    // error and the save toast.
+    route_acl_editor_title,
+    route_acl_help_title,
+    route_acl_help,
+    route_acl_template,
+    route_acl_parse_error,
+    route_acl_saved,
     route_udp_note,
     route_restart_hint,
     dns_label,
@@ -479,10 +488,50 @@ pub const ZH: Strings = Strings {
     route_bypass_lan: "绕开局域网",
     route_bypass_cn: "绕开中国大陆",
     route_bypass_lan_cn: "绕开局域网及中国大陆",
-    route_acl: "自定义 ACL 文件",
+    route_acl: "自定义 ACL 规则",
     route_acl_file: "ACL 文件",
-    route_acl_pick: "选择文件…",
-    route_acl_none: "未选择 ACL 文件",
+    route_acl_pick: "编辑规则…",
+    route_acl_none: "尚未编写 ACL 规则",
+    route_acl_editor_title: "编辑 ACL 规则",
+    route_acl_help_title: "编写规则",
+    route_acl_help: r#"格式与 shadowsocks-rust 的 ACL 文件一致：一行一条规则，# 或 ! 开头是注释。
+
+默认动作小节（决定未命中目标走哪边，取文件里最后一个）：
+  [proxy_all]   未列出的目标走代理（等价 [accept_all]；不写小节头时同此）
+  [bypass_all]  未列出的目标直连（等价 [reject_all]）
+
+名单小节（其后每行一条规则）：
+  [bypass_list] 直连名单（等价 [black_list]）
+  [proxy_list]  走代理名单（等价 [white_list]）
+
+规则写法：
+  1.2.3.4            单个 IP 地址
+  10.0.0.0/8         网段（CIDR）
+  |example.com       仅该域名，不含子域名（精确匹配）
+  ||example.com      该域名及其所有子域名
+  (^|\.)gmail\.com$  其余按正则匹配域名（忽略大小写）
+
+优先级：域名规则以 [proxy_list] 为准，IP 规则以 [bypass_list] 为准，未命中按默认动作。
+域名请用 punycode（纯 ASCII）；保存时会校验语法并标出出错行号。"#,
+    route_acl_template: r#"# 自定义 ACL 规则：保存后“自定义 ACL”模式即按本文件分流。
+# 写法说明见上方“编写规则”。
+
+# 未列出的目标默认走代理；改成 [bypass_all] 则默认直连。
+[proxy_all]
+
+# 以下目标直连，不走代理。
+[bypass_list]
+10.0.0.0/8
+172.16.0.0/12
+192.168.0.0/16
+127.0.0.0/8
+
+# 以下目标强制走代理（示例，按需取消注释）。
+[proxy_list]
+# ||blocked.example.com
+"#,
+    route_acl_parse_error: "规则有误，未保存：{error}",
+    route_acl_saved: "ACL 规则已保存",
     route_udp_note: "UDP 中继不参与分流，启用后始终经 SSR 转发。",
     route_restart_hint: "路由与 DNS 设置在下次“启用代理”时生效。",
     dns_label: "DNS 解析",
@@ -612,10 +661,50 @@ pub const EN: Strings = Strings {
     route_bypass_lan: "Bypass LAN",
     route_bypass_cn: "Bypass mainland China",
     route_bypass_lan_cn: "Bypass LAN and mainland China",
-    route_acl: "Custom ACL file",
+    route_acl: "Custom ACL rules",
     route_acl_file: "ACL file",
-    route_acl_pick: "Choose file…",
-    route_acl_none: "No ACL file selected",
+    route_acl_pick: "Edit rules…",
+    route_acl_none: "No ACL rules written yet",
+    route_acl_editor_title: "Edit ACL rules",
+    route_acl_help_title: "Writing rules",
+    route_acl_help: r#"Same format as a shadowsocks-rust ACL file: one rule per line; # or ! starts a comment.
+
+Default-action sections (what an unmatched target does; the last one wins):
+  [proxy_all]   unmatched targets go through the proxy ([accept_all]; same when no header is written)
+  [bypass_all]  unmatched targets go direct ([reject_all])
+
+Rule-list sections (one rule per line below):
+  [bypass_list] go direct ([black_list])
+  [proxy_list]  go through the proxy ([white_list])
+
+Rule syntax:
+  1.2.3.4            single IP address
+  10.0.0.0/8         network (CIDR)
+  |example.com       that exact host only, no subdomains
+  ||example.com      that domain and all subdomains
+  (^|\.)gmail\.com$  anything else is a regex on the host (case-insensitive)
+
+Priority: host rules in [proxy_list] decide, IP rules in [bypass_list] decide, unmatched targets use the default action.
+Domains must be punycode (plain ASCII); the syntax is validated on save with the offending line number."#,
+    route_acl_template: r#"# Custom ACL rules: once saved, "Custom ACL mode" follows this file.
+# See "Writing rules" above for the syntax.
+
+# Unlisted targets go through the proxy; use [bypass_all] for direct.
+[proxy_all]
+
+# These go direct.
+[bypass_list]
+10.0.0.0/8
+172.16.0.0/12
+192.168.0.0/16
+127.0.0.0/8
+
+# These are forced through the proxy (example — uncomment as needed).
+[proxy_list]
+# ||blocked.example.com
+"#,
+    route_acl_parse_error: "Invalid rules, not saved: {error}",
+    route_acl_saved: "ACL rules saved",
     route_udp_note: "The UDP relay is not routed — it always goes through SSR.",
     route_restart_hint: "Routing and DNS settings apply the next time the proxy is enabled.",
     dns_label: "DNS resolution",
